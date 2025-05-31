@@ -43,7 +43,7 @@ All original Slack MCP server functionality is preserved and enhanced.
 ### 1. Installation
 
 ```bash
-cd /projects/slack-canvas-mcp
+cd slack_mcp_server
 npm install
 npm run build
 ```
@@ -70,9 +70,9 @@ npm run build
 ```json
 {
   "mcpServers": {
-    "slack-canvas": {
+    "slack": {
       "command": "node",
-      "args": ["/projects/slack-canvas-mcp/dist/index.js"],
+      "args": ["slack_mcp_server/dist/index.js"],
       "env": {
         "SLACK_BOT_TOKEN": "xoxb-your-actual-token-here",
         "SLACK_TEAM_ID": "T1234567890"
@@ -193,7 +193,7 @@ npm run test:coverage
 ### Project Structure
 
 ```
-/projects/slack-canvas-mcp/
+/slack_mcp_server/
 ├── src/
 │   └── index.ts          # Main server implementation
 ├── test/
