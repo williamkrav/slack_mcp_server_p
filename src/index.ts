@@ -164,6 +164,135 @@ interface RemindersDeleteArgs {
   reminder: string;     // Reminder ID
 }
 
+// Channel/Conversation Management API type definitions
+interface ConversationCreateArgs {
+  name: string;         // Name of the channel (21 chars max)
+  is_private?: boolean; // Create a private channel
+  team_id?: string;     // Team ID for Enterprise Grid
+}
+
+interface ConversationArchiveArgs {
+  channel: string;      // Channel ID to archive
+}
+
+interface ConversationUnarchiveArgs {
+  channel: string;      // Channel ID to unarchive
+}
+
+interface ConversationInviteArgs {
+  channel: string;      // Channel ID
+  users: string;        // Comma-separated list of user IDs
+}
+
+interface ConversationKickArgs {
+  channel: string;      // Channel ID
+  user: string;         // User ID to remove
+}
+
+interface ConversationRenameArgs {
+  channel: string;      // Channel ID
+  name: string;         // New name for channel
+}
+
+interface ConversationSetPurposeArgs {
+  channel: string;      // Channel ID
+  purpose: string;      // New channel purpose
+}
+
+interface ConversationSetTopicArgs {
+  channel: string;      // Channel ID
+  topic: string;        // New channel topic
+}
+
+interface ConversationJoinArgs {
+  channel: string;      // Channel ID to join
+}
+
+interface ConversationLeaveArgs {
+  channel: string;      // Channel ID to leave
+}
+
+// Pins API type definitions
+interface PinsAddArgs {
+  channel: string;      // Channel ID
+  timestamp: string;    // Timestamp of message to pin
+}
+
+interface PinsRemoveArgs {
+  channel: string;      // Channel ID
+  timestamp: string;    // Timestamp of message to unpin
+}
+
+interface PinsListArgs {
+  channel: string;      // Channel ID
+}
+
+// Additional Reactions API type definitions
+interface ReactionsRemoveArgs {
+  channel: string;      // Channel ID
+  timestamp: string;    // Message timestamp
+  name: string;         // Reaction name (without ::)
+}
+
+interface ReactionsGetArgs {
+  channel: string;      // Channel ID
+  timestamp: string;    // Message timestamp
+  full?: boolean;       // Return all reactions (not just 25)
+}
+
+interface ReactionsListArgs {
+  count?: number;       // Number of items per page
+  page?: number;        // Page number
+  full?: boolean;       // Return all reactions
+}
+
+// Views API type definitions
+interface ViewsOpenArgs {
+  trigger_id: string;   // Trigger ID from interaction
+  view: {               // View payload
+    type: "modal";
+    title: {
+      type: "plain_text";
+      text: string;
+    };
+    blocks: any[];      // Block kit blocks
+    submit?: {
+      type: "plain_text";
+      text: string;
+    };
+    close?: {
+      type: "plain_text";
+      text: string;
+    };
+    callback_id?: string;
+  };
+}
+
+interface ViewsUpdateArgs {
+  view_id: string;      // View ID to update
+  view: {               // Updated view payload
+    type: "modal";
+    title: {
+      type: "plain_text";
+      text: string;
+    };
+    blocks: any[];
+  };
+  hash?: string;        // Hash for conflict detection
+}
+
+interface ViewsPushArgs {
+  trigger_id: string;   // Trigger ID
+  view: {               // View to push
+    type: "modal";
+    title: {
+      type: "plain_text";
+      text: string;
+    };
+    blocks: any[];
+  };
+}
+
 // Existing tool definitions
 const listChannelsTool: Tool = {
   name: "slack_list_channels",
@@ -759,6 +888,474 @@ const remindersDeleteTool: Tool = {
   },
 };
 
+// Channel/Conversation Management tool definitions
+const conversationCreateTool: Tool = {
+  name: "slack_conversation_create",
+  description: "Create a new channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      name: {
+        type: "string",
+        description: "Name of the channel to create (max 21 characters, lowercase)",
+      },
+      is_private: {
+        type: "boolean",
+        description: "Create as a private channel",
+        default: false,
+      },
+      team_id: {
+        type: "string",
+        description: "Team ID for Enterprise Grid",
+      },
+    },
+    required: ["name"],
+  },
+};
+
+const conversationArchiveTool: Tool = {
+  name: "slack_conversation_archive",
+  description: "Archive a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID to archive",
+      },
+    },
+    required: ["channel"],
+  },
+};
+
+const conversationUnarchiveTool: Tool = {
+  name: "slack_conversation_unarchive",
+  description: "Unarchive a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID to unarchive",
+      },
+    },
+    required: ["channel"],
+  },
+};
+
+const conversationInviteTool: Tool = {
+  name: "slack_conversation_invite",
+  description: "Invite users to a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      users: {
+        type: "string",
+        description: "Comma-separated list of user IDs to invite",
+      },
+    },
+    required: ["channel", "users"],
+  },
+};
+
+const conversationKickTool: Tool = {
+  name: "slack_conversation_kick",
+  description: "Remove a user from a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      user: {
+        type: "string",
+        description: "User ID to remove",
+      },
+    },
+    required: ["channel", "user"],
+  },
+};
+
+const conversationRenameTool: Tool = {
+  name: "slack_conversation_rename",
+  description: "Rename a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      name: {
+        type: "string",
+        description: "New name for the channel",
+      },
+    },
+    required: ["channel", "name"],
+  },
+};
+
+const conversationSetPurposeTool: Tool = {
+  name: "slack_conversation_set_purpose",
+  description: "Set the purpose of a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      purpose: {
+        type: "string",
+        description: "New channel purpose",
+      },
+    },
+    required: ["channel", "purpose"],
+  },
+};
+
+const conversationSetTopicTool: Tool = {
+  name: "slack_conversation_set_topic",
+  description: "Set the topic of a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      topic: {
+        type: "string",
+        description: "New channel topic",
+      },
+    },
+    required: ["channel", "topic"],
+  },
+};
+
+const conversationJoinTool: Tool = {
+  name: "slack_conversation_join",
+  description: "Join a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID to join",
+      },
+    },
+    required: ["channel"],
+  },
+};
+
+const conversationLeaveTool: Tool = {
+  name: "slack_conversation_leave",
+  description: "Leave a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID to leave",
+      },
+    },
+    required: ["channel"],
+  },
+};
+
+// Pins API tool definitions
+const pinsAddTool: Tool = {
+  name: "slack_pins_add",
+  description: "Pin a message to a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      timestamp: {
+        type: "string",
+        description: "Timestamp of the message to pin",
+      },
+    },
+    required: ["channel", "timestamp"],
+  },
+};
+
+const pinsRemoveTool: Tool = {
+  name: "slack_pins_remove",
+  description: "Remove a pinned message from a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+      timestamp: {
+        type: "string",
+        description: "Timestamp of the message to unpin",
+      },
+    },
+    required: ["channel", "timestamp"],
+  },
+};
+
+const pinsListTool: Tool = {
+  name: "slack_pins_list",
+  description: "List all pinned items in a channel",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID",
+      },
+    },
+    required: ["channel"],
+  },
+};
+
+// Additional Reactions API tool definitions
+const reactionsRemoveTool: Tool = {
+  name: "slack_reactions_remove",
+  description: "Remove a reaction from a message",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID containing the message",
+      },
+      timestamp: {
+        type: "string",
+        description: "Timestamp of the message",
+      },
+      name: {
+        type: "string",
+        description: "Reaction name to remove (without colons)",
+      },
+    },
+    required: ["channel", "timestamp", "name"],
+  },
+};
+
+const reactionsGetTool: Tool = {
+  name: "slack_reactions_get",
+  description: "Get reactions for a message",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Channel ID containing the message",
+      },
+      timestamp: {
+        type: "string",
+        description: "Timestamp of the message",
+      },
+      full: {
+        type: "boolean",
+        description: "Return all reactions (not just first 25)",
+        default: false,
+      },
+    },
+    required: ["channel", "timestamp"],
+  },
+};
+
+const reactionsListTool: Tool = {
+  name: "slack_reactions_list",
+  description: "List all items reacted to by the user",
+  inputSchema: {
+    type: "object",
+    properties: {
+      count: {
+        type: "number",
+        description: "Number of items per page",
+        default: 100,
+      },
+      page: {
+        type: "number",
+        description: "Page number",
+        default: 1,
+      },
+      full: {
+        type: "boolean",
+        description: "Return all reactions for each item",
+        default: false,
+      },
+    },
+  },
+};
+
+// Views API tool definitions
+const viewsOpenTool: Tool = {
+  name: "slack_views_open",
+  description: "Open a modal dialog",
+  inputSchema: {
+    type: "object",
+    properties: {
+      trigger_id: {
+        type: "string",
+        description: "Trigger ID from user interaction",
+      },
+      view: {
+        type: "object",
+        description: "Modal view definition",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["modal"],
+          },
+          title: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["plain_text"],
+              },
+              text: {
+                type: "string",
+              },
+            },
+            required: ["type", "text"],
+          },
+          blocks: {
+            type: "array",
+            description: "Block Kit blocks",
+          },
+          submit: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["plain_text"],
+              },
+              text: {
+                type: "string",
+              },
+            },
+          },
+          close: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["plain_text"],
+              },
+              text: {
+                type: "string",
+              },
+            },
+          },
+          callback_id: {
+            type: "string",
+          },
+        },
+        required: ["type", "title", "blocks"],
+      },
+    },
+    required: ["trigger_id", "view"],
+  },
+};
+
+const viewsUpdateTool: Tool = {
+  name: "slack_views_update",
+  description: "Update an existing modal",
+  inputSchema: {
+    type: "object",
+    properties: {
+      view_id: {
+        type: "string",
+        description: "ID of the view to update",
+      },
+      view: {
+        type: "object",
+        description: "Updated view definition",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["modal"],
+          },
+          title: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["plain_text"],
+              },
+              text: {
+                type: "string",
+              },
+            },
+            required: ["type", "text"],
+          },
+          blocks: {
+            type: "array",
+            description: "Block Kit blocks",
+          },
+        },
+        required: ["type", "title", "blocks"],
+      },
+      hash: {
+        type: "string",
+        description: "Hash for conflict detection",
+      },
+    },
+    required: ["view_id", "view"],
+  },
+};
+
+const viewsPushTool: Tool = {
+  name: "slack_views_push",
+  description: "Push a new view onto the modal stack",
+  inputSchema: {
+    type: "object",
+    properties: {
+      trigger_id: {
+        type: "string",
+        description: "Trigger ID from user interaction",
+      },
+      view: {
+        type: "object",
+        description: "View to push",
+        properties: {
+          type: {
+            type: "string",
+            enum: ["modal"],
+          },
+          title: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["plain_text"],
+              },
+              text: {
+                type: "string",
+              },
+            },
+            required: ["type", "text"],
+          },
+          blocks: {
+            type: "array",
+            description: "Block Kit blocks",
+          },
+        },
+        required: ["type", "title", "blocks"],
+      },
+    },
+    required: ["trigger_id", "view"],
+  },
+};
+
 class SlackClient {
   private botHeaders: { Authorization: string; "Content-Type": string };
 
@@ -1180,6 +1777,261 @@ class SlackClient {
 
     return response.json();
   }
+
+  // Channel/Conversation Management methods
+  async createConversation(args: ConversationCreateArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.create", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        name: args.name,
+        is_private: args.is_private || false,
+        team_id: args.team_id,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async archiveConversation(args: ConversationArchiveArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.archive", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async unarchiveConversation(args: ConversationUnarchiveArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.unarchive", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async inviteToConversation(args: ConversationInviteArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.invite", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        users: args.users,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async kickFromConversation(args: ConversationKickArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.kick", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        user: args.user,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async renameConversation(args: ConversationRenameArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.rename", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        name: args.name,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async setConversationPurpose(args: ConversationSetPurposeArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.setPurpose", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        purpose: args.purpose,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async setConversationTopic(args: ConversationSetTopicArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.setTopic", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        topic: args.topic,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async joinConversation(args: ConversationJoinArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.join", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async leaveConversation(args: ConversationLeaveArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/conversations.leave", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+      }),
+    });
+
+    return response.json();
+  }
+
+  // Pins API methods
+  async addPin(args: PinsAddArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/pins.add", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        timestamp: args.timestamp,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async removePin(args: PinsRemoveArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/pins.remove", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        timestamp: args.timestamp,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async listPins(args: PinsListArgs): Promise<any> {
+    const params = new URLSearchParams({
+      channel: args.channel,
+    });
+
+    const response = await fetch(
+      `https://slack.com/api/pins.list?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  // Additional Reactions API methods
+  async removeReaction(args: ReactionsRemoveArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/reactions.remove", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        channel: args.channel,
+        timestamp: args.timestamp,
+        name: args.name,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async getReactions(args: ReactionsGetArgs): Promise<any> {
+    const params = new URLSearchParams({
+      channel: args.channel,
+      timestamp: args.timestamp,
+    });
+    
+    if (args.full) params.append("full", "true");
+
+    const response = await fetch(
+      `https://slack.com/api/reactions.get?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  async listReactions(args: ReactionsListArgs): Promise<any> {
+    const params = new URLSearchParams();
+    
+    if (args.count) params.append("count", args.count.toString());
+    if (args.page) params.append("page", args.page.toString());
+    if (args.full) params.append("full", "true");
+
+    const response = await fetch(
+      `https://slack.com/api/reactions.list?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  // Views API methods
+  async openView(args: ViewsOpenArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/views.open", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        trigger_id: args.trigger_id,
+        view: args.view,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async updateView(args: ViewsUpdateArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/views.update", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        view_id: args.view_id,
+        view: args.view,
+        hash: args.hash,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async pushView(args: ViewsPushArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/views.push", {
+      method: "POST",
+      headers: this.botHeaders,
+      body: JSON.stringify({
+        trigger_id: args.trigger_id,
+        view: args.view,
+      }),
+    });
+
+    return response.json();
+  }
 }
 
 async function main() {
@@ -1204,7 +2056,7 @@ async function main() {
   const server = new Server(
     {
       name: "Slack MCP Server with Canvas",
-      version: "0.8.0",
+      version: "0.9.0",
     },
     {
       capabilities: {
@@ -1529,6 +2381,216 @@ async function main() {
             };
           }
 
+          // Channel/Conversation Management handlers
+          case "slack_conversation_create": {
+            const args = request.params.arguments as unknown as ConversationCreateArgs;
+            if (!args.name) {
+              throw new Error("Missing required argument: name");
+            }
+            const response = await slackClient.createConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_archive": {
+            const args = request.params.arguments as unknown as ConversationArchiveArgs;
+            if (!args.channel) {
+              throw new Error("Missing required argument: channel");
+            }
+            const response = await slackClient.archiveConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_unarchive": {
+            const args = request.params.arguments as unknown as ConversationUnarchiveArgs;
+            if (!args.channel) {
+              throw new Error("Missing required argument: channel");
+            }
+            const response = await slackClient.unarchiveConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_invite": {
+            const args = request.params.arguments as unknown as ConversationInviteArgs;
+            if (!args.channel || !args.users) {
+              throw new Error("Missing required arguments: channel and users");
+            }
+            const response = await slackClient.inviteToConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_kick": {
+            const args = request.params.arguments as unknown as ConversationKickArgs;
+            if (!args.channel || !args.user) {
+              throw new Error("Missing required arguments: channel and user");
+            }
+            const response = await slackClient.kickFromConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_rename": {
+            const args = request.params.arguments as unknown as ConversationRenameArgs;
+            if (!args.channel || !args.name) {
+              throw new Error("Missing required arguments: channel and name");
+            }
+            const response = await slackClient.renameConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_set_purpose": {
+            const args = request.params.arguments as unknown as ConversationSetPurposeArgs;
+            if (!args.channel || !args.purpose) {
+              throw new Error("Missing required arguments: channel and purpose");
+            }
+            const response = await slackClient.setConversationPurpose(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_set_topic": {
+            const args = request.params.arguments as unknown as ConversationSetTopicArgs;
+            if (!args.channel || !args.topic) {
+              throw new Error("Missing required arguments: channel and topic");
+            }
+            const response = await slackClient.setConversationTopic(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_join": {
+            const args = request.params.arguments as unknown as ConversationJoinArgs;
+            if (!args.channel) {
+              throw new Error("Missing required argument: channel");
+            }
+            const response = await slackClient.joinConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_conversation_leave": {
+            const args = request.params.arguments as unknown as ConversationLeaveArgs;
+            if (!args.channel) {
+              throw new Error("Missing required argument: channel");
+            }
+            const response = await slackClient.leaveConversation(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          // Pins API handlers
+          case "slack_pins_add": {
+            const args = request.params.arguments as unknown as PinsAddArgs;
+            if (!args.channel || !args.timestamp) {
+              throw new Error("Missing required arguments: channel and timestamp");
+            }
+            const response = await slackClient.addPin(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_pins_remove": {
+            const args = request.params.arguments as unknown as PinsRemoveArgs;
+            if (!args.channel || !args.timestamp) {
+              throw new Error("Missing required arguments: channel and timestamp");
+            }
+            const response = await slackClient.removePin(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_pins_list": {
+            const args = request.params.arguments as unknown as PinsListArgs;
+            if (!args.channel) {
+              throw new Error("Missing required argument: channel");
+            }
+            const response = await slackClient.listPins(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          // Additional Reactions API handlers
+          case "slack_reactions_remove": {
+            const args = request.params.arguments as unknown as ReactionsRemoveArgs;
+            if (!args.channel || !args.timestamp || !args.name) {
+              throw new Error("Missing required arguments: channel, timestamp, and name");
+            }
+            const response = await slackClient.removeReaction(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_reactions_get": {
+            const args = request.params.arguments as unknown as ReactionsGetArgs;
+            if (!args.channel || !args.timestamp) {
+              throw new Error("Missing required arguments: channel and timestamp");
+            }
+            const response = await slackClient.getReactions(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_reactions_list": {
+            const args = request.params.arguments as unknown as ReactionsListArgs;
+            const response = await slackClient.listReactions(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          // Views API handlers
+          case "slack_views_open": {
+            const args = request.params.arguments as unknown as ViewsOpenArgs;
+            if (!args.trigger_id || !args.view) {
+              throw new Error("Missing required arguments: trigger_id and view");
+            }
+            const response = await slackClient.openView(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_views_update": {
+            const args = request.params.arguments as unknown as ViewsUpdateArgs;
+            if (!args.view_id || !args.view) {
+              throw new Error("Missing required arguments: view_id and view");
+            }
+            const response = await slackClient.updateView(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_views_push": {
+            const args = request.params.arguments as unknown as ViewsPushArgs;
+            if (!args.trigger_id || !args.view) {
+              throw new Error("Missing required arguments: trigger_id and view");
+            }
+            const response = await slackClient.pushView(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
           default:
             throw new Error(`Unknown tool: ${request.params.name}`);
         }
@@ -1580,6 +2642,29 @@ async function main() {
         remindersAddTool,
         remindersListTool,
         remindersDeleteTool,
+        // Channel/Conversation Management tools
+        conversationCreateTool,
+        conversationArchiveTool,
+        conversationUnarchiveTool,
+        conversationInviteTool,
+        conversationKickTool,
+        conversationRenameTool,
+        conversationSetPurposeTool,
+        conversationSetTopicTool,
+        conversationJoinTool,
+        conversationLeaveTool,
+        // Pins API tools
+        pinsAddTool,
+        pinsRemoveTool,
+        pinsListTool,
+        // Additional Reactions API tools
+        reactionsRemoveTool,
+        reactionsGetTool,
+        reactionsListTool,
+        // Views API tools
+        viewsOpenTool,
+        viewsUpdateTool,
+        viewsPushTool,
       ],
     };
   });

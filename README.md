@@ -53,6 +53,33 @@ All original Slack MCP server functionality is preserved and enhanced.
 22. `slack_reminders_list` - List active reminders
 23. `slack_reminders_delete` - Delete reminders
 
+### Channel Management (NEW)
+24. `slack_conversation_create` - Create new channels (public or private)
+25. `slack_conversation_archive` - Archive channels
+26. `slack_conversation_unarchive` - Unarchive channels
+27. `slack_conversation_invite` - Invite users to channels
+28. `slack_conversation_kick` - Remove users from channels
+29. `slack_conversation_rename` - Rename channels
+30. `slack_conversation_set_purpose` - Set channel purpose
+31. `slack_conversation_set_topic` - Set channel topic
+32. `slack_conversation_join` - Join a channel
+33. `slack_conversation_leave` - Leave a channel
+
+### Pins (NEW)
+34. `slack_pins_add` - Pin messages or files to channels
+35. `slack_pins_remove` - Unpin items from channels
+36. `slack_pins_list` - List all pinned items in a channel
+
+### Extended Reactions (NEW)
+37. `slack_reactions_remove` - Remove reactions from messages
+38. `slack_reactions_get` - Get all reactions for a specific message
+39. `slack_reactions_list` - List items the user has reacted to
+
+### Views/Modals (NEW)
+40. `slack_views_open` - Open modal dialogs
+41. `slack_views_update` - Update existing modals
+42. `slack_views_push` - Push new views onto the modal stack
+
 ## 🚀 Quick Start
 
 ### 1. Installation
@@ -70,8 +97,10 @@ npm run build
    ```
    channels:history      # View messages in public channels
    channels:read         # View basic channel information
+   channels:manage      # Create, archive, rename channels
    chat:write           # Send messages
-   reactions:write      # Add emoji reactions
+   reactions:read       # View reactions
+   reactions:write      # Add and remove reactions
    users:read           # View users and their basic information
    users.profile:read   # View detailed user profiles
    canvases:read        # Access canvas contents
@@ -81,6 +110,10 @@ npm run build
    search:read          # Search messages and files
    reminders:read       # View reminders
    reminders:write      # Create and delete reminders
+   pins:read            # View pinned items
+   pins:write           # Pin and unpin items
+   groups:read          # View private channels
+   groups:write         # Manage private channels
    ```
 3. **Install to Workspace** and copy the Bot Token (`xoxb-...`)
 4. **Get Team ID** (starts with `T`)
@@ -251,6 +284,144 @@ const config = {
 - Unix timestamp: `1234567890`
 - Natural language: `"in 2 hours"`, `"next Monday"`, `"tomorrow at 3pm"`
 
+## 📢 Channel Management Examples
+
+### Create a Channel
+
+```typescript
+{
+  "name": "project-alpha",
+  "is_private": false
+}
+```
+
+### Invite Users to Channel
+
+```typescript
+{
+  "channel": "C123456789",
+  "users": "U123456,U789012,U345678"
+}
+```
+
+### Set Channel Topic and Purpose
+
+```typescript
+// Set topic
+{
+  "channel": "C123456789",
+  "topic": "Q1 2024 Product Launch 🚀"
+}
+
+// Set purpose
+{
+  "channel": "C123456789",
+  "purpose": "Coordinate all activities for the Q1 product launch"
+}
+```
+
+## 📌 Pins Examples
+
+### Pin a Message
+
+```typescript
+{
+  "channel": "C123456789",
+  "timestamp": "1234567890.123456"
+}
+```
+
+### List Pinned Items
+
+```typescript
+{
+  "channel": "C123456789"
+}
+// Returns both pinned messages and files
+```
+
+## 😀 Reactions Examples
+
+### Get All Reactions for a Message
+
+```typescript
+{
+  "channel": "C123456789",
+  "timestamp": "1234567890.123456",
+  "full": true  // Get all reactions, not just first 25
+}
+```
+
+### Remove a Reaction
+
+```typescript
+{
+  "channel": "C123456789",
+  "timestamp": "1234567890.123456",
+  "name": "thumbsup"
+}
+```
+
+## 🪟 Views/Modals Examples
+
+### Open a Modal Dialog
+
+```typescript
+{
+  "trigger_id": "12345.98765.abcd",
+  "view": {
+    "type": "modal",
+    "title": {
+      "type": "plain_text",
+      "text": "Feedback Form"
+    },
+    "blocks": [
+      {
+        "type": "input",
+        "block_id": "feedback_input",
+        "element": {
+          "type": "plain_text_input",
+          "multiline": true,
+          "action_id": "feedback"
+        },
+        "label": {
+          "type": "plain_text",
+          "text": "Share your feedback"
+        }
+      }
+    ],
+    "submit": {
+      "type": "plain_text",
+      "text": "Submit"
+    }
+  }
+}
+```
+
+### Update Modal Content
+
+```typescript
+{
+  "view_id": "V123456",
+  "view": {
+    "type": "modal",
+    "title": {
+      "type": "plain_text",
+      "text": "Success!"
+    },
+    "blocks": [
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": "✅ Your feedback has been submitted successfully!"
+        }
+      }
+    ]
+  }
+}
+```
+
 ## 🧪 Testing
 
 ### Run Tests
@@ -274,6 +445,10 @@ npm run test:coverage
 - **`test/filesApi.test.ts`**: Files API functionality tests
 - **`test/searchApi.test.ts`**: Search API functionality tests
 - **`test/reminderApi.test.ts`**: Reminder API functionality tests
+- **`test/conversationApi.test.ts`**: Channel management API tests
+- **`test/pinsApi.test.ts`**: Pins API functionality tests
+- **`test/reactionsApi.test.ts`**: Extended reactions API tests
+- **`test/viewsApi.test.ts`**: Views/Modals API tests
 - **`test/e2e.test.ts`**: End-to-end workflow tests
 
 ### Coverage Goals
@@ -320,8 +495,12 @@ npm run prepare    # Build for distribution
 - **File Management API**: Upload, list, view, and delete files
 - **Search API**: Search messages and files with advanced query syntax
 - **Reminder API**: Create and manage reminders with natural language
-- **Enhanced permissions**: Canvas and file access control
-- **Comprehensive testing**: 80%+ test coverage with 58 tests
+- **Channel Management**: Create, archive, rename, and manage channels
+- **Pins API**: Pin and unpin messages or files to channels
+- **Extended Reactions**: Remove reactions and get detailed reaction data
+- **Views/Modals API**: Create interactive modal dialogs
+- **Enhanced permissions**: Comprehensive access control
+- **Comprehensive testing**: 80%+ test coverage with 87 tests
 - **Better error handling**: Graceful failure recovery
 
 ### ⚠️ Breaking Changes
@@ -331,6 +510,10 @@ npm run prepare    # Build for distribution
   - `files:read` and `files:write` for File management
   - `search:read` for Search functionality
   - `reminders:read` and `reminders:write` for Reminders
+  - `channels:manage` for Channel creation and management
+  - `groups:read` and `groups:write` for Private channel management
+  - `pins:read` and `pins:write` for Pins functionality
+  - `reactions:read` for Extended reactions features
 - **User token required**: Some features (files, reminders) need `SLACK_USER_TOKEN`
 - **Paid workspace requirement**: Canvas features require paid Slack workspace
 
