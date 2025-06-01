@@ -139,7 +139,7 @@ npm run build
 
 **Notes**: 
 - `SLACK_CHANNEL_IDS` is no longer needed! The server now dynamically discovers all channels.
-- `SLACK_USER_TOKEN` is required for file uploads, reminders, and some Canvas operations.
+- `SLACK_USER_TOKEN` is required for file uploads, reminders, search operations, and some Canvas operations.
 
 ## 🎯 Canvas API Examples
 
@@ -542,6 +542,11 @@ npm run prepare    # Build for distribution
    - Confirm all required scopes are added to Slack app
    - Reinstall app to workspace after adding scopes
    - Verify `SLACK_BOT_TOKEN` starts with `xoxb-`
+
+4. **Search operations fail with "not_allowed_token_type"**
+   - Ensure `SLACK_USER_TOKEN` is set (starts with `xoxp-`)
+   - Search APIs require user tokens, not bot tokens
+   - User token must have `search:read` scope
 
 ## 🔍 Logging and Debugging
 

@@ -11,6 +11,8 @@ import {
   CallToolRequest,
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListPromptsRequestSchema,
+  ListResourcesRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
@@ -1856,7 +1858,8 @@ class SlackClient {
 
     return this.makeApiRequest(
       `https://slack.com/api/search.messages?${params}`,
-      { method: 'GET' }
+      { method: 'GET' },
+      true  // useUserToken - search APIs require user tokens
     );
   }
 
@@ -1875,7 +1878,8 @@ class SlackClient {
 
     return this.makeApiRequest(
       `https://slack.com/api/search.files?${params}`,
-      { method: 'GET' }
+      { method: 'GET' },
+      true  // useUserToken - search APIs require user tokens
     );
   }
 
@@ -2869,6 +2873,22 @@ async function main() {
         viewsUpdateTool,
         viewsPushTool,
       ],
+    };
+  });
+
+  // Handle prompts list (we don't provide any prompts)
+  server.setRequestHandler(ListPromptsRequestSchema, async () => {
+    Logger.debug("Listing prompts (none available)");
+    return {
+      prompts: [],
+    };
+  });
+
+  // Handle resources list (we don't provide any resources)
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    Logger.debug("Listing resources (none available)");
+    return {
+      resources: [],
     };
   });
 
