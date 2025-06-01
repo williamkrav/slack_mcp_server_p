@@ -2551,10 +2551,44 @@ async function main() {
           // Reminder API handlers
         case "slack_reminders_add": {
           const args = request.params.arguments as unknown as RemindersAddArgs;
-          if (!args.text || !args.time) {
+          if (!args.text || args.time === undefined || args.time === null) {
             throw new Error("Missing required arguments: text and time");
           }
+
+          // Validate time format
+          if (typeof args.time === 'string' && args.time.trim() === '') {
+            throw new Error("Time cannot be an empty string");
+          }
+
+          // If it's a number, ensure it's a valid Unix timestamp (not in the past)
+          if (typeof args.time === 'number' && args.time < Date.now() / 1000) {
+            Logger.warn("Reminder time appears to be in the past", {
+              provided: args.time,
+              current: Math.floor(Date.now() / 1000)
+            });
+          }
+
           const response = await slackClient.addReminder(args);
+
+          // Check for common errors
+          if (!response.ok) {
+            Logger.error("Failed to add reminder", {
+              error: response.error,
+              text: args.text,
+              time: args.time,
+              user: args.user
+            });
+
+            // Provide helpful error messages
+            if (response.error === 'invalid_time') {
+              response.hint = "Time format not recognized. Try 'tomorrow at 3pm' or a Unix timestamp";
+            } else if (response.error === 'cannot_parse') {
+              response.hint = "Could not parse the time. Use natural language like 'in 2 hours' or 'next Monday at 9am'";
+            } else if (response.error === 'time_in_past') {
+              response.hint = "The specified time is in the past";
+            }
+          }
+
           return {
             content: [{ type: "text", text: JSON.stringify(response) }],
           };

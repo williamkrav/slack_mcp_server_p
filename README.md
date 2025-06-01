@@ -282,8 +282,16 @@ const config = {
 ```
 
 ### Time Formats Supported
-- Unix timestamp: `1234567890`
+- Unix timestamp: `1234567890` (seconds since epoch, must be in the future)
 - Natural language: `"in 2 hours"`, `"next Monday"`, `"tomorrow at 3pm"`
+- Specific times: `"3:00pm"`, `"15:30"`, `"9am tomorrow"`
+- Relative times: `"in 30 minutes"`, `"2 hours from now"`
+
+### Common Issues with Reminders
+- **Time zone**: Natural language times use the user's Slack timezone
+- **Past times**: Cannot create reminders for times in the past
+- **User token required**: Must have `SLACK_USER_TOKEN` with `reminders:write` scope
+- **Format errors**: Avoid ambiguous times like "soon" or "later"
 
 ## 📢 Channel Management Examples
 
