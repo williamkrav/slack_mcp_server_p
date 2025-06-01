@@ -1,4 +1,10 @@
 #!/usr/bin/env node
+/**
+ * Slack MCP Server with Canvas, Files, Search, and Reminders support
+ * Copyright (c) 2024 jfcamel
+ * Licensed under the MIT License
+ */
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -91,6 +97,71 @@ interface CanvasAccessSetArgs {
   access_level: "read" | "write" | "none";
   channel_ids?: string[];
   user_ids?: string[];
+}
+
+// Files API type definitions
+interface FilesUploadArgs {
+  content?: string;           // File content (for text files)
+  filename?: string;          // Filename 
+  filetype?: string;          // File type (auto-detect if not provided)
+  title?: string;             // Title of the file
+  initial_comment?: string;   // Message to add about the file
+  channels?: string[];        // Channel IDs to share the file
+  thread_ts?: string;         // Thread timestamp to upload into
+}
+
+interface FilesListArgs {
+  channel?: string;     // Filter by channel
+  user?: string;        // Filter by user who uploaded
+  types?: string;       // Comma-separated file types (e.g., "images,pdfs")
+  from?: number;        // Start timestamp (Unix epoch)
+  to?: number;          // End timestamp (Unix epoch)
+  count?: number;       // Number of items to return (default: 100)
+  page?: number;        // Page number for pagination
+}
+
+interface FilesInfoArgs {
+  file: string;         // File ID
+  page?: number;        // Page of comments to return
+  count?: number;       // Number of comments per page
+}
+
+interface FilesDeleteArgs {
+  file: string;         // File ID to delete
+}
+
+// Search API type definitions
+interface SearchMessagesArgs {
+  query: string;        // Search query with operators
+  sort?: "score" | "timestamp";  // Sort order (default: score)
+  sort_dir?: "asc" | "desc";     // Sort direction
+  highlight?: boolean;            // Include highlight markers
+  count?: number;                 // Results per page (default: 20)
+  page?: number;                  // Page number
+}
+
+interface SearchFilesArgs {
+  query: string;        // Search query
+  sort?: "score" | "timestamp";  // Sort order
+  sort_dir?: "asc" | "desc";     // Sort direction
+  highlight?: boolean;            // Include highlights
+  count?: number;                 // Results per page
+  page?: number;                  // Page number
+}
+
+// Reminder API type definitions
+interface RemindersAddArgs {
+  text: string;         // Reminder text
+  time: string | number; // When to remind (timestamp or natural language)
+  user?: string;        // User to remind (default: self)
+}
+
+interface RemindersListArgs {
+  user?: string;        // Filter by user (default: self)
+}
+
+interface RemindersDeleteArgs {
+  reminder: string;     // Reminder ID
 }
 
 // Existing tool definitions
@@ -429,6 +500,265 @@ const canvasAccessSetTool: Tool = {
   },
 };
 
+// Files API tool definitions
+const filesUploadTool: Tool = {
+  name: "slack_files_upload",
+  description: "Upload a file to Slack",
+  inputSchema: {
+    type: "object",
+    properties: {
+      content: {
+        type: "string",
+        description: "File content (for text files)",
+      },
+      filename: {
+        type: "string",
+        description: "Name of the file",
+      },
+      filetype: {
+        type: "string",
+        description: "Type of file (e.g., 'text', 'javascript', 'python')",
+      },
+      title: {
+        type: "string",
+        description: "Title of the file",
+      },
+      initial_comment: {
+        type: "string",
+        description: "Initial comment to add about the file",
+      },
+      channels: {
+        type: "array",
+        items: {
+          type: "string",
+        },
+        description: "Channel IDs where the file will be shared",
+      },
+      thread_ts: {
+        type: "string",
+        description: "Thread timestamp to upload file to",
+      },
+    },
+    required: ["content", "filename"],
+  },
+};
+
+const filesListTool: Tool = {
+  name: "slack_files_list",
+  description: "List files in the workspace",
+  inputSchema: {
+    type: "object",
+    properties: {
+      channel: {
+        type: "string",
+        description: "Filter files by channel",
+      },
+      user: {
+        type: "string",
+        description: "Filter files by user who uploaded",
+      },
+      types: {
+        type: "string",
+        description: "Filter files by type (e.g., 'images,pdfs')",
+      },
+      from: {
+        type: "number",
+        description: "Filter files created after this timestamp",
+      },
+      to: {
+        type: "number",
+        description: "Filter files created before this timestamp",
+      },
+      count: {
+        type: "number",
+        description: "Number of items to return per page (default: 100)",
+        default: 100,
+      },
+      page: {
+        type: "number",
+        description: "Page number of results to return",
+        default: 1,
+      },
+    },
+  },
+};
+
+const filesInfoTool: Tool = {
+  name: "slack_files_info",
+  description: "Get information about a file",
+  inputSchema: {
+    type: "object",
+    properties: {
+      file: {
+        type: "string",
+        description: "File ID",
+      },
+      page: {
+        type: "number",
+        description: "Page number of comments to return",
+      },
+      count: {
+        type: "number",
+        description: "Number of comments per page",
+      },
+    },
+    required: ["file"],
+  },
+};
+
+const filesDeleteTool: Tool = {
+  name: "slack_files_delete",
+  description: "Delete a file",
+  inputSchema: {
+    type: "object",
+    properties: {
+      file: {
+        type: "string",
+        description: "File ID to delete",
+      },
+    },
+    required: ["file"],
+  },
+};
+
+// Search API tool definitions
+const searchMessagesTool: Tool = {
+  name: "slack_search_messages",
+  description: "Search for messages in the workspace",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "Search query (supports operators like from:user, in:channel)",
+      },
+      sort: {
+        type: "string",
+        enum: ["score", "timestamp"],
+        description: "Sort order for results",
+        default: "score",
+      },
+      sort_dir: {
+        type: "string",
+        enum: ["asc", "desc"],
+        description: "Sort direction",
+        default: "desc",
+      },
+      highlight: {
+        type: "boolean",
+        description: "Include highlight markers in results",
+        default: true,
+      },
+      count: {
+        type: "number",
+        description: "Number of items to return per page",
+        default: 20,
+      },
+      page: {
+        type: "number",
+        description: "Page number of results to return",
+        default: 1,
+      },
+    },
+    required: ["query"],
+  },
+};
+
+const searchFilesTool: Tool = {
+  name: "slack_search_files",
+  description: "Search for files in the workspace",
+  inputSchema: {
+    type: "object",
+    properties: {
+      query: {
+        type: "string",
+        description: "Search query for files",
+      },
+      sort: {
+        type: "string",
+        enum: ["score", "timestamp"],
+        description: "Sort order for results",
+        default: "score",
+      },
+      sort_dir: {
+        type: "string",
+        enum: ["asc", "desc"],
+        description: "Sort direction",
+        default: "desc",
+      },
+      highlight: {
+        type: "boolean",
+        description: "Include highlight markers in results",
+        default: true,
+      },
+      count: {
+        type: "number",
+        description: "Number of items to return per page",
+        default: 20,
+      },
+      page: {
+        type: "number",
+        description: "Page number of results to return",
+        default: 1,
+      },
+    },
+    required: ["query"],
+  },
+};
+
+// Reminder API tool definitions
+const remindersAddTool: Tool = {
+  name: "slack_reminders_add",
+  description: "Create a reminder",
+  inputSchema: {
+    type: "object",
+    properties: {
+      text: {
+        type: "string",
+        description: "The content of the reminder",
+      },
+      time: {
+        type: ["string", "number"],
+        description: "When to send the reminder (Unix timestamp or natural language like 'tomorrow at 3pm')",
+      },
+      user: {
+        type: "string",
+        description: "User ID to send the reminder to (defaults to the user who created it)",
+      },
+    },
+    required: ["text", "time"],
+  },
+};
+
+const remindersListTool: Tool = {
+  name: "slack_reminders_list",
+  description: "List all reminders",
+  inputSchema: {
+    type: "object",
+    properties: {
+      user: {
+        type: "string",
+        description: "Filter reminders by user",
+      },
+    },
+  },
+};
+
+const remindersDeleteTool: Tool = {
+  name: "slack_reminders_delete",
+  description: "Delete a reminder",
+  inputSchema: {
+    type: "object",
+    properties: {
+      reminder: {
+        type: "string",
+        description: "The ID of the reminder to delete",
+      },
+    },
+    required: ["reminder"],
+  },
+};
+
 class SlackClient {
   private botHeaders: { Authorization: string; "Content-Type": string };
 
@@ -674,6 +1004,182 @@ class SlackClient {
 
     return response.json();
   }
+
+  // Files API methods
+  async uploadFile(args: FilesUploadArgs): Promise<any> {
+    const formData = new FormData();
+    
+    if (args.content) {
+      formData.append("content", args.content);
+    }
+    if (args.filename) {
+      formData.append("filename", args.filename);
+    }
+    if (args.filetype) {
+      formData.append("filetype", args.filetype);
+    }
+    if (args.title) {
+      formData.append("title", args.title);
+    }
+    if (args.initial_comment) {
+      formData.append("initial_comment", args.initial_comment);
+    }
+    if (args.channels) {
+      formData.append("channels", args.channels.join(","));
+    }
+    if (args.thread_ts) {
+      formData.append("thread_ts", args.thread_ts);
+    }
+
+    const response = await fetch("https://slack.com/api/files.upload", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+      },
+      body: formData,
+    });
+
+    return response.json();
+  }
+
+  async listFiles(args: FilesListArgs): Promise<any> {
+    const params = new URLSearchParams();
+    
+    if (args.channel) params.append("channel", args.channel);
+    if (args.user) params.append("user", args.user);
+    if (args.types) params.append("types", args.types);
+    if (args.from) params.append("ts_from", args.from.toString());
+    if (args.to) params.append("ts_to", args.to.toString());
+    if (args.count) params.append("count", args.count.toString());
+    if (args.page) params.append("page", args.page.toString());
+
+    const response = await fetch(
+      `https://slack.com/api/files.list?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  async getFileInfo(args: FilesInfoArgs): Promise<any> {
+    const params = new URLSearchParams({
+      file: args.file,
+    });
+    
+    if (args.page) params.append("page", args.page.toString());
+    if (args.count) params.append("count", args.count.toString());
+
+    const response = await fetch(
+      `https://slack.com/api/files.info?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  async deleteFile(args: FilesDeleteArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/files.delete", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        file: args.file,
+      }),
+    });
+
+    return response.json();
+  }
+
+  // Search API methods
+  async searchMessages(args: SearchMessagesArgs): Promise<any> {
+    const params = new URLSearchParams({
+      query: args.query,
+    });
+    
+    if (args.sort) params.append("sort", args.sort);
+    if (args.sort_dir) params.append("sort_dir", args.sort_dir);
+    if (args.highlight !== undefined) params.append("highlight", args.highlight.toString());
+    if (args.count) params.append("count", args.count.toString());
+    if (args.page) params.append("page", args.page.toString());
+
+    const response = await fetch(
+      `https://slack.com/api/search.messages?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  async searchFiles(args: SearchFilesArgs): Promise<any> {
+    const params = new URLSearchParams({
+      query: args.query,
+    });
+    
+    if (args.sort) params.append("sort", args.sort);
+    if (args.sort_dir) params.append("sort_dir", args.sort_dir);
+    if (args.highlight !== undefined) params.append("highlight", args.highlight.toString());
+    if (args.count) params.append("count", args.count.toString());
+    if (args.page) params.append("page", args.page.toString());
+
+    const response = await fetch(
+      `https://slack.com/api/search.files?${params}`,
+      { headers: this.botHeaders }
+    );
+
+    return response.json();
+  }
+
+  // Reminder API methods
+  async addReminder(args: RemindersAddArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/reminders.add", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        text: args.text,
+        time: args.time,
+        user: args.user,
+      }),
+    });
+
+    return response.json();
+  }
+
+  async listReminders(args: RemindersListArgs): Promise<any> {
+    const params = new URLSearchParams();
+    if (args.user) params.append("user", args.user);
+
+    const response = await fetch(
+      `https://slack.com/api/reminders.list?${params}`,
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.json();
+  }
+
+  async deleteReminder(args: RemindersDeleteArgs): Promise<any> {
+    const response = await fetch("https://slack.com/api/reminders.delete", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        reminder: args.reminder,
+      }),
+    });
+
+    return response.json();
+  }
 }
 
 async function main() {
@@ -687,11 +1193,18 @@ async function main() {
     process.exit(1);
   }
 
+  const userToken = process.env.SLACK_USER_TOKEN;
+  if (!userToken) {
+    console.error(
+      "Warning: SLACK_USER_TOKEN not set. File uploads, reminders, and some Canvas operations will not work.",
+    );
+  }
+
   console.error("Starting Slack MCP Server with Canvas support...");
   const server = new Server(
     {
       name: "Slack MCP Server with Canvas",
-      version: "0.7.0",
+      version: "0.8.0",
     },
     {
       capabilities: {
@@ -918,6 +1431,104 @@ async function main() {
             };
           }
 
+          // Files API handlers
+          case "slack_files_upload": {
+            const args = request.params.arguments as unknown as FilesUploadArgs;
+            if (!args.content || !args.filename) {
+              throw new Error(
+                "Missing required arguments: content and filename",
+              );
+            }
+            const response = await slackClient.uploadFile(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_files_list": {
+            const args = request.params.arguments as unknown as FilesListArgs;
+            const response = await slackClient.listFiles(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_files_info": {
+            const args = request.params.arguments as unknown as FilesInfoArgs;
+            if (!args.file) {
+              throw new Error("Missing required argument: file");
+            }
+            const response = await slackClient.getFileInfo(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_files_delete": {
+            const args = request.params.arguments as unknown as FilesDeleteArgs;
+            if (!args.file) {
+              throw new Error("Missing required argument: file");
+            }
+            const response = await slackClient.deleteFile(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          // Search API handlers
+          case "slack_search_messages": {
+            const args = request.params.arguments as unknown as SearchMessagesArgs;
+            if (!args.query) {
+              throw new Error("Missing required argument: query");
+            }
+            const response = await slackClient.searchMessages(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_search_files": {
+            const args = request.params.arguments as unknown as SearchFilesArgs;
+            if (!args.query) {
+              throw new Error("Missing required argument: query");
+            }
+            const response = await slackClient.searchFiles(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          // Reminder API handlers
+          case "slack_reminders_add": {
+            const args = request.params.arguments as unknown as RemindersAddArgs;
+            if (!args.text || !args.time) {
+              throw new Error("Missing required arguments: text and time");
+            }
+            const response = await slackClient.addReminder(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_reminders_list": {
+            const args = request.params.arguments as unknown as RemindersListArgs;
+            const response = await slackClient.listReminders(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
+          case "slack_reminders_delete": {
+            const args = request.params.arguments as unknown as RemindersDeleteArgs;
+            if (!args.reminder) {
+              throw new Error("Missing required argument: reminder");
+            }
+            const response = await slackClient.deleteReminder(args);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
           default:
             throw new Error(`Unknown tool: ${request.params.name}`);
         }
@@ -957,6 +1568,18 @@ async function main() {
         canvasGetTool,
         canvasDeleteTool,
         canvasAccessSetTool,
+        // Files API tools
+        filesUploadTool,
+        filesListTool,
+        filesInfoTool,
+        filesDeleteTool,
+        // Search API tools
+        searchMessagesTool,
+        searchFilesTool,
+        // Reminder API tools
+        remindersAddTool,
+        remindersListTool,
+        remindersDeleteTool,
       ],
     };
   });

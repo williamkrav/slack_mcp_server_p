@@ -1,6 +1,6 @@
 # Slack MCP Server with Canvas Support
 
-Enhanced MCP Server for the Slack API, enabling Claude to interact with Slack workspaces including comprehensive Canvas functionality with dynamic channel support.
+Enhanced MCP Server for the Slack API, enabling AI assistants like Claude to interact with Slack workspaces including comprehensive Canvas functionality with dynamic channel support.
 
 ## ✨ Key Features
 
@@ -38,6 +38,21 @@ All original Slack MCP server functionality is preserved and enhanced.
 13. `slack_canvas_delete` - Delete canvases
 14. `slack_canvas_access_set` - Manage canvas permissions
 
+### File Management (NEW)
+15. `slack_files_upload` - Upload files to Slack
+16. `slack_files_list` - List files with filtering options
+17. `slack_files_info` - Get detailed file information
+18. `slack_files_delete` - Delete files from workspace
+
+### Search (NEW)
+19. `slack_search_messages` - Search messages across workspace
+20. `slack_search_files` - Search files in workspace
+
+### Reminders (NEW)
+21. `slack_reminders_add` - Create reminders
+22. `slack_reminders_list` - List active reminders
+23. `slack_reminders_delete` - Delete reminders
+
 ## 🚀 Quick Start
 
 ### 1. Installation
@@ -59,8 +74,13 @@ npm run build
    reactions:write      # Add emoji reactions
    users:read           # View users and their basic information
    users.profile:read   # View detailed user profiles
-   canvases:read        # NEW: Access canvas contents
-   canvases:write       # NEW: Create, edit and remove canvases
+   canvases:read        # Access canvas contents
+   canvases:write       # Create, edit and remove canvases
+   files:read           # View files in workspace
+   files:write          # Upload and delete files
+   search:read          # Search messages and files
+   reminders:read       # View reminders
+   reminders:write      # Create and delete reminders
    ```
 3. **Install to Workspace** and copy the Bot Token (`xoxb-...`)
 4. **Get Team ID** (starts with `T`)
@@ -75,6 +95,7 @@ npm run build
       "args": ["slack_mcp_server/dist/index.js"],
       "env": {
         "SLACK_BOT_TOKEN": "xoxb-your-actual-token-here",
+        "SLACK_USER_TOKEN": "xoxp-your-user-token-here",
         "SLACK_TEAM_ID": "T1234567890"
       }
     }
@@ -82,7 +103,9 @@ npm run build
 }
 ```
 
-**Note**: `SLACK_CHANNEL_IDS` is no longer needed! The server now dynamically discovers all channels.
+**Notes**: 
+- `SLACK_CHANNEL_IDS` is no longer needed! The server now dynamically discovers all channels.
+- `SLACK_USER_TOKEN` is required for file uploads, reminders, and some Canvas operations.
 
 ## 🎯 Canvas API Examples
 
@@ -159,6 +182,75 @@ const config = {
 [Design Doc](https://example.com/design)
 ```
 
+## 📁 File Management Examples
+
+### Upload a File
+
+```typescript
+{
+  "content": "# Project Report\n\n## Summary\nQ1 performance exceeded expectations...",
+  "filename": "q1-report.md",
+  "title": "Q1 2024 Report",
+  "initial_comment": "Here's the Q1 report for review",
+  "channels": ["C123456789"]
+}
+```
+
+### Search Files
+
+```typescript
+{
+  "query": "type:pdf from:U123456",
+  "sort": "timestamp",
+  "sort_dir": "desc"
+}
+```
+
+## 🔍 Search Examples
+
+### Search Messages with Operators
+
+```typescript
+{
+  "query": "from:@alice in:#general has:link during:today",
+  "sort": "timestamp",
+  "highlight": true
+}
+```
+
+### Search Query Syntax
+- `from:@username` - Messages from specific user
+- `in:#channel` - Messages in specific channel  
+- `has:link` - Messages containing links
+- `has:star` - Starred messages
+- `during:today` - Time-based filters
+- `"exact phrase"` - Exact phrase matching
+
+## ⏰ Reminder Examples
+
+### Create a Reminder
+
+```typescript
+{
+  "text": "Review pull requests",
+  "time": "tomorrow at 9am"
+}
+```
+
+### Create Reminder for Another User
+
+```typescript
+{
+  "text": "Submit timesheet",
+  "time": "Friday at 5pm",
+  "user": "U789012"
+}
+```
+
+### Time Formats Supported
+- Unix timestamp: `1234567890`
+- Natural language: `"in 2 hours"`, `"next Monday"`, `"tomorrow at 3pm"`
+
 ## 🧪 Testing
 
 ### Run Tests
@@ -179,6 +271,9 @@ npm run test:coverage
 - **`test/slackClient.test.ts`**: SlackClient class unit tests
 - **`test/mcpServer.test.ts`**: MCP server integration tests
 - **`test/canvasFeatures.test.ts`**: Canvas API functionality tests
+- **`test/filesApi.test.ts`**: Files API functionality tests
+- **`test/searchApi.test.ts`**: Search API functionality tests
+- **`test/reminderApi.test.ts`**: Reminder API functionality tests
 - **`test/e2e.test.ts`**: End-to-end workflow tests
 
 ### Coverage Goals
@@ -222,13 +317,21 @@ npm run prepare    # Build for distribution
 ### ✅ What's New
 - **Dynamic channel discovery**: No more static channel configuration
 - **Complete Canvas API**: Full create, read, update, delete operations
-- **Enhanced permissions**: Canvas access control
-- **Comprehensive testing**: 80%+ test coverage
+- **File Management API**: Upload, list, view, and delete files
+- **Search API**: Search messages and files with advanced query syntax
+- **Reminder API**: Create and manage reminders with natural language
+- **Enhanced permissions**: Canvas and file access control
+- **Comprehensive testing**: 80%+ test coverage with 58 tests
 - **Better error handling**: Graceful failure recovery
 
 ### ⚠️ Breaking Changes
 - **Environment variable removed**: `SLACK_CHANNEL_IDS` is no longer used
-- **New permissions required**: `canvases:read` and `canvases:write` scopes needed
+- **New permissions required**: Multiple new scopes needed:
+  - `canvases:read` and `canvases:write` for Canvas features
+  - `files:read` and `files:write` for File management
+  - `search:read` for Search functionality
+  - `reminders:read` and `reminders:write` for Reminders
+- **User token required**: Some features (files, reminders) need `SLACK_USER_TOKEN`
 - **Paid workspace requirement**: Canvas features require paid Slack workspace
 
 ### 🔒 Backward Compatibility
@@ -264,7 +367,10 @@ DEBUG=slack-mcp:* node dist/index.js
 
 ## 📄 License
 
-MIT License - see original Slack MCP server license terms.
+MIT License - Copyright (c) 2024 jfcamel
+
+This project extends the original [Model Context Protocol Servers](https://github.com/modelcontextprotocol/servers) Slack implementation.
+See NOTICES file for attribution.
 
 ## 🤝 Contributing
 
@@ -276,4 +382,4 @@ MIT License - see original Slack MCP server license terms.
 
 ---
 
-**Ready to transform your Slack canvas management with Claude!** 🎨✨
+**Ready to transform your Slack workspace management with MCP!** 🎨✨
