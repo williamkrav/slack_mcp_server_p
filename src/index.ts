@@ -14,6 +14,88 @@ import {
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
 
+// Logging configuration
+const LOG_LEVEL = process.env.SLACK_MCP_LOG_LEVEL || 'info';
+
+// Color codes for terminal output
+const colors = {
+  reset: '\x1b[0m',
+  red: '\x1b[31m',
+  green: '\x1b[32m',
+  yellow: '\x1b[33m',
+  blue: '\x1b[34m',
+  magenta: '\x1b[35m',
+  cyan: '\x1b[36m',
+  gray: '\x1b[90m',
+};
+
+// Logging utility
+class Logger {
+  private static shouldLog(level: string): boolean {
+    const levels = ['debug', 'info', 'warn', 'error'];
+    const currentLevelIndex = levels.indexOf(LOG_LEVEL);
+    const messageLevelIndex = levels.indexOf(level);
+    return messageLevelIndex >= currentLevelIndex;
+  }
+
+  private static formatMessage(level: string, message: string, data?: any): string {
+    const timestamp = new Date().toISOString();
+    const colorMap: { [key: string]: string } = {
+      debug: colors.gray,
+      info: colors.blue,
+      warn: colors.yellow,
+      error: colors.red,
+      success: colors.green,
+    };
+    const color = colorMap[level] || colors.reset;
+    let output = `${color}[${timestamp}] [${level.toUpperCase()}] ${message}${colors.reset}`;
+    if (data !== undefined) {
+      output += `\n${colors.gray}${JSON.stringify(data, null, 2)}${colors.reset}`;
+    }
+    return output;
+  }
+
+  static debug(message: string, data?: any) {
+    if (this.shouldLog('debug')) {
+      console.error(this.formatMessage('debug', message, data));
+    }
+  }
+
+  static info(message: string, data?: any) {
+    if (this.shouldLog('info')) {
+      console.error(this.formatMessage('info', message, data));
+    }
+  }
+
+  static warn(message: string, data?: any) {
+    if (this.shouldLog('warn')) {
+      console.error(this.formatMessage('warn', message, data));
+    }
+  }
+
+  static error(message: string, data?: any) {
+    if (this.shouldLog('error')) {
+      console.error(this.formatMessage('error', message, data));
+    }
+  }
+
+  static success(message: string, data?: any) {
+    if (this.shouldLog('info')) {
+      console.error(this.formatMessage('success', message, data));
+    }
+  }
+
+  static apiRequest(method: string, url: string, body?: any) {
+    this.debug(`API Request: ${method} ${url}`, body);
+  }
+
+  static apiResponse(method: string, url: string, status: number, body: any) {
+    const level = status >= 400 ? 'error' : 'debug';
+    const message = `API Response: ${method} ${url} - Status: ${status}`;
+    this[level](message, body);
+  }
+}
+
 // Type definitions for tool arguments
 interface ListChannelsArgs {
   limit?: number;
@@ -102,7 +184,7 @@ interface CanvasAccessSetArgs {
 // Files API type definitions
 interface FilesUploadArgs {
   content?: string;           // File content (for text files)
-  filename?: string;          // Filename 
+  filename?: string;          // Filename
   filetype?: string;          // File type (auto-detect if not provided)
   title?: string;             // Title of the file
   initial_comment?: string;   // Message to add about the file
@@ -303,7 +385,7 @@ const listChannelsTool: Tool = {
       limit: {
         type: "number",
         description:
-          "Maximum number of channels to return (default 100, max 200)",
+        "Maximum number of channels to return (default 100, max 200)",
         default: 100,
       },
       cursor: {
@@ -421,7 +503,7 @@ const getThreadRepliesTool: Tool = {
 const getUsersTool: Tool = {
   name: "slack_get_users",
   description:
-    "Get a list of all users in the workspace with their basic profile information",
+  "Get a list of all users in the workspace with their basic profile information",
   inputSchema: {
     type: "object",
     properties: {
@@ -1358,16 +1440,65 @@ const viewsPushTool: Tool = {
 
 class SlackClient {
   private botHeaders: { Authorization: string; "Content-Type": string };
+  private userHeaders: { Authorization: string; "Content-Type": string };
 
   constructor(botToken: string) {
     this.botHeaders = {
       Authorization: `Bearer ${botToken}`,
       "Content-Type": "application/json",
     };
+
+    const userToken = process.env.SLACK_USER_TOKEN;
+    this.userHeaders = {
+      Authorization: `Bearer ${userToken}`,
+      "Content-Type": "application/json",
+    };
+  }
+
+  // Helper method for making API requests with logging
+  private async makeApiRequest(
+    url: string,
+    options: RequestInit,
+    useUserToken: boolean = false
+  ): Promise<any> {
+    const method = options.method || 'GET';
+    const headers = useUserToken ? this.userHeaders : this.botHeaders;
+
+    // Log the request
+    Logger.apiRequest(method, url, options.body ? JSON.parse(options.body as string) : undefined);
+
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers: options.headers || headers,
+      });
+
+      const responseBody = await response.json();
+
+      // Log the response
+      Logger.apiResponse(method, url, response.status, responseBody);
+
+      // Check for Slack API errors
+      if (!responseBody.ok) {
+        Logger.error(`Slack API error for ${method} ${url}`, {
+          error: responseBody.error,
+          needed: responseBody.needed,
+          provided: responseBody.provided,
+          warning: responseBody.warning,
+          response_metadata: responseBody.response_metadata,
+        });
+      }
+
+      return responseBody;
+    } catch (error) {
+      Logger.error(`Network error for ${method} ${url}`, error);
+      throw error;
+    }
   }
 
   async getChannels(limit: number = 100, cursor?: string): Promise<any> {
-    // Always fetch channels dynamically via API
+    Logger.debug('Getting channels', { limit, cursor });
+
     const params = new URLSearchParams({
       types: "public_channel,private_channel",
       exclude_archived: "true",
@@ -1379,25 +1510,25 @@ class SlackClient {
       params.append("cursor", cursor);
     }
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/conversations.list?${params}`,
-      { headers: this.botHeaders },
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async postMessage(channel_id: string, text: string): Promise<any> {
-    const response = await fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: channel_id,
-        text: text,
-      }),
-    });
+    Logger.debug('Posting message', { channel_id, text_length: text.length });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/chat.postMessage",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: channel_id,
+          text: text,
+        }),
+      }
+    );
   }
 
   async postReply(
@@ -1405,17 +1536,19 @@ class SlackClient {
     thread_ts: string,
     text: string,
   ): Promise<any> {
-    const response = await fetch("https://slack.com/api/chat.postMessage", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: channel_id,
-        thread_ts: thread_ts,
-        text: text,
-      }),
-    });
+    Logger.debug('Posting reply to thread', { channel_id, thread_ts, text_length: text.length });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/chat.postMessage",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: channel_id,
+          thread_ts: thread_ts,
+          text: text,
+        }),
+      }
+    );
   }
 
   async addReaction(
@@ -1423,51 +1556,55 @@ class SlackClient {
     timestamp: string,
     reaction: string,
   ): Promise<any> {
-    const response = await fetch("https://slack.com/api/reactions.add", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: channel_id,
-        timestamp: timestamp,
-        name: reaction,
-      }),
-    });
+    Logger.debug('Adding reaction', { channel_id, timestamp, reaction });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/reactions.add",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: channel_id,
+          timestamp: timestamp,
+          name: reaction,
+        }),
+      }
+    );
   }
 
   async getChannelHistory(
     channel_id: string,
     limit: number = 10,
   ): Promise<any> {
+    Logger.debug('Getting channel history', { channel_id, limit });
+
     const params = new URLSearchParams({
       channel: channel_id,
       limit: limit.toString(),
     });
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/conversations.history?${params}`,
-      { headers: this.botHeaders },
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async getThreadReplies(channel_id: string, thread_ts: string): Promise<any> {
+    Logger.debug('Getting thread replies', { channel_id, thread_ts });
+
     const params = new URLSearchParams({
       channel: channel_id,
       ts: thread_ts,
     });
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/conversations.replies?${params}`,
-      { headers: this.botHeaders },
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async getUsers(limit: number = 100, cursor?: string): Promise<any> {
+    Logger.debug('Getting users', { limit, cursor });
+
     const params = new URLSearchParams({
       limit: Math.min(limit, 200).toString(),
       team_id: process.env.SLACK_TEAM_ID!,
@@ -1477,135 +1614,146 @@ class SlackClient {
       params.append("cursor", cursor);
     }
 
-    const response = await fetch(`https://slack.com/api/users.list?${params}`, {
-      headers: this.botHeaders,
-    });
-
-    return response.json();
+    return this.makeApiRequest(
+      `https://slack.com/api/users.list?${params}`,
+      { method: 'GET' }
+    );
   }
 
   async getUserProfile(user_id: string): Promise<any> {
+    Logger.debug('Getting user profile', { user_id });
+
     const params = new URLSearchParams({
       user: user_id,
       include_labels: "true",
     });
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/users.profile.get?${params}`,
-      { headers: this.botHeaders },
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   // Canvas API methods
   async createCanvas(title?: string, document_content?: DocumentContent, channel_id?: string): Promise<any> {
+    Logger.debug('Creating canvas', { title, has_content: !!document_content, channel_id });
+
     const payload: any = {};
-    
+
     if (title) {
       payload.title = title;
     }
-    
+
     if (document_content) {
       payload.document_content = document_content;
     }
-    
+
     if (channel_id) {
       payload.channel_id = channel_id;
     }
 
-    const response = await fetch("https://slack.com/api/canvases.create", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify(payload),
-    });
-
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/canvases.create",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
   }
 
   async editCanvas(canvas_id: string, changes: CanvasChange[]): Promise<any> {
-    const response = await fetch("https://slack.com/api/canvases.edit", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        canvas_id: canvas_id,
-        changes: changes,
-      }),
-    });
+    Logger.debug('Editing canvas', { canvas_id, changes_count: changes.length });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/canvases.edit",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          canvas_id: canvas_id,
+          changes: changes,
+        }),
+      }
+    );
   }
 
   async createChannelCanvas(channel_id: string, document_content?: DocumentContent): Promise<any> {
+    Logger.debug('Creating channel canvas', { channel_id, has_content: !!document_content });
+
     const payload: any = {
       channel_id: channel_id,
     };
-    
+
     if (document_content) {
       payload.document_content = document_content;
     }
 
-    const response = await fetch("https://slack.com/api/conversations.canvases.create", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify(payload),
-    });
-
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.canvases.create",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
   }
 
   async getCanvas(canvas_id: string): Promise<any> {
+    Logger.debug('Getting canvas', { canvas_id });
+
     const params = new URLSearchParams({
       canvas_id: canvas_id,
     });
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/canvases.sections.lookup?${params}`,
-      { headers: this.botHeaders },
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async deleteCanvas(canvas_id: string): Promise<any> {
-    const response = await fetch("https://slack.com/api/canvases.delete", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        canvas_id: canvas_id,
-      }),
-    });
+    Logger.debug('Deleting canvas', { canvas_id });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/canvases.delete",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          canvas_id: canvas_id,
+        }),
+      }
+    );
   }
 
   async setCanvasAccess(canvas_id: string, access_level: string, channel_ids?: string[], user_ids?: string[]): Promise<any> {
+    Logger.debug('Setting canvas access', { canvas_id, access_level, channel_ids, user_ids });
+
     const payload: any = {
       canvas_id: canvas_id,
       access_level: access_level,
     };
-    
+
     if (channel_ids) {
       payload.channel_ids = channel_ids;
     }
-    
+
     if (user_ids) {
       payload.user_ids = user_ids;
     }
 
-    const response = await fetch("https://slack.com/api/canvases.access.set", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify(payload),
-    });
-
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/canvases.access.set",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }
+    );
   }
 
   // Files API methods
   async uploadFile(args: FilesUploadArgs): Promise<any> {
+    Logger.debug('Uploading file', { filename: args.filename, filetype: args.filetype, channels: args.channels });
+
     const formData = new FormData();
-    
+
     if (args.content) {
       formData.append("content", args.content);
     }
@@ -1628,20 +1776,25 @@ class SlackClient {
       formData.append("thread_ts", args.thread_ts);
     }
 
-    const response = await fetch("https://slack.com/api/files.upload", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+    // Note: This uses FormData, so we need to pass custom headers
+    return this.makeApiRequest(
+      "https://slack.com/api/files.upload",
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
+        },
+        body: formData,
       },
-      body: formData,
-    });
-
-    return response.json();
+      true  // useUserToken
+    );
   }
 
   async listFiles(args: FilesListArgs): Promise<any> {
+    Logger.debug('Listing files', args);
+
     const params = new URLSearchParams();
-    
+
     if (args.channel) params.append("channel", args.channel);
     if (args.user) params.append("user", args.user);
     if (args.types) params.append("types", args.types);
@@ -1650,409 +1803,444 @@ class SlackClient {
     if (args.count) params.append("count", args.count.toString());
     if (args.page) params.append("page", args.page.toString());
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/files.list?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async getFileInfo(args: FilesInfoArgs): Promise<any> {
+    Logger.debug('Getting file info', { file: args.file });
+
     const params = new URLSearchParams({
       file: args.file,
     });
-    
+
     if (args.page) params.append("page", args.page.toString());
     if (args.count) params.append("count", args.count.toString());
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/files.info?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async deleteFile(args: FilesDeleteArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/files.delete", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        file: args.file,
-      }),
-    });
+    Logger.debug('Deleting file', { file: args.file });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/files.delete",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          file: args.file,
+        }),
+      },
+      true  // useUserToken
+    );
   }
 
   // Search API methods
   async searchMessages(args: SearchMessagesArgs): Promise<any> {
+    Logger.debug('Searching messages', { query: args.query, sort: args.sort });
+
     const params = new URLSearchParams({
       query: args.query,
     });
-    
+
     if (args.sort) params.append("sort", args.sort);
     if (args.sort_dir) params.append("sort_dir", args.sort_dir);
     if (args.highlight !== undefined) params.append("highlight", args.highlight.toString());
     if (args.count) params.append("count", args.count.toString());
     if (args.page) params.append("page", args.page.toString());
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/search.messages?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async searchFiles(args: SearchFilesArgs): Promise<any> {
+    Logger.debug('Searching files', { query: args.query, sort: args.sort });
+
     const params = new URLSearchParams({
       query: args.query,
     });
-    
+
     if (args.sort) params.append("sort", args.sort);
     if (args.sort_dir) params.append("sort_dir", args.sort_dir);
     if (args.highlight !== undefined) params.append("highlight", args.highlight.toString());
     if (args.count) params.append("count", args.count.toString());
     if (args.page) params.append("page", args.page.toString());
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/search.files?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   // Reminder API methods
   async addReminder(args: RemindersAddArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/reminders.add", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        text: args.text,
-        time: args.time,
-        user: args.user,
-      }),
-    });
+    Logger.debug('Adding reminder', { text: args.text, time: args.time, user: args.user });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/reminders.add",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          text: args.text,
+          time: args.time,
+          user: args.user,
+        }),
+      },
+      true  // useUserToken
+    );
   }
 
   async listReminders(args: RemindersListArgs): Promise<any> {
+    Logger.debug('Listing reminders', { user: args.user });
+
     const params = new URLSearchParams();
     if (args.user) params.append("user", args.user);
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/reminders.list?${params}`,
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
-          "Content-Type": "application/json",
-        },
-      }
+      { method: 'GET' },
+      true  // useUserToken
     );
-
-    return response.json();
   }
 
   async deleteReminder(args: RemindersDeleteArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/reminders.delete", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_USER_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        reminder: args.reminder,
-      }),
-    });
+    Logger.debug('Deleting reminder', { reminder: args.reminder });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/reminders.delete",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          reminder: args.reminder,
+        }),
+      },
+      true  // useUserToken
+    );
   }
 
   // Channel/Conversation Management methods
   async createConversation(args: ConversationCreateArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.create", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        name: args.name,
-        is_private: args.is_private || false,
-        team_id: args.team_id,
-      }),
-    });
+    Logger.debug('Creating conversation', { name: args.name, is_private: args.is_private });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.create",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          name: args.name,
+          is_private: args.is_private || false,
+          team_id: args.team_id,
+        }),
+      }
+    );
   }
 
   async archiveConversation(args: ConversationArchiveArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.archive", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-      }),
-    });
+    Logger.debug('Archiving conversation', { channel: args.channel });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.archive",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+        }),
+      }
+    );
   }
 
   async unarchiveConversation(args: ConversationUnarchiveArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.unarchive", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-      }),
-    });
+    Logger.debug('Unarchiving conversation', { channel: args.channel });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.unarchive",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+        }),
+      }
+    );
   }
 
   async inviteToConversation(args: ConversationInviteArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.invite", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        users: args.users,
-      }),
-    });
+    Logger.debug('Inviting to conversation', { channel: args.channel, users: args.users });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.invite",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          users: args.users,
+        }),
+      }
+    );
   }
 
   async kickFromConversation(args: ConversationKickArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.kick", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        user: args.user,
-      }),
-    });
+    Logger.debug('Kicking from conversation', { channel: args.channel, user: args.user });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.kick",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          user: args.user,
+        }),
+      }
+    );
   }
 
   async renameConversation(args: ConversationRenameArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.rename", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        name: args.name,
-      }),
-    });
+    Logger.debug('Renaming conversation', { channel: args.channel, name: args.name });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.rename",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          name: args.name,
+        }),
+      }
+    );
   }
 
   async setConversationPurpose(args: ConversationSetPurposeArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.setPurpose", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        purpose: args.purpose,
-      }),
-    });
+    Logger.debug('Setting conversation purpose', { channel: args.channel, purpose: args.purpose });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.setPurpose",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          purpose: args.purpose,
+        }),
+      }
+    );
   }
 
   async setConversationTopic(args: ConversationSetTopicArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.setTopic", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        topic: args.topic,
-      }),
-    });
+    Logger.debug('Setting conversation topic', { channel: args.channel, topic: args.topic });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.setTopic",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          topic: args.topic,
+        }),
+      }
+    );
   }
 
   async joinConversation(args: ConversationJoinArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.join", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-      }),
-    });
+    Logger.debug('Joining conversation', { channel: args.channel });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.join",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+        }),
+      }
+    );
   }
 
   async leaveConversation(args: ConversationLeaveArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/conversations.leave", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-      }),
-    });
+    Logger.debug('Leaving conversation', { channel: args.channel });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/conversations.leave",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+        }),
+      }
+    );
   }
 
   // Pins API methods
   async addPin(args: PinsAddArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/pins.add", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        timestamp: args.timestamp,
-      }),
-    });
+    Logger.debug('Adding pin', { channel: args.channel, timestamp: args.timestamp });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/pins.add",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          timestamp: args.timestamp,
+        }),
+      }
+    );
   }
 
   async removePin(args: PinsRemoveArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/pins.remove", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        timestamp: args.timestamp,
-      }),
-    });
+    Logger.debug('Removing pin', { channel: args.channel, timestamp: args.timestamp });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/pins.remove",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          timestamp: args.timestamp,
+        }),
+      }
+    );
   }
 
   async listPins(args: PinsListArgs): Promise<any> {
+    Logger.debug('Listing pins', { channel: args.channel });
+
     const params = new URLSearchParams({
       channel: args.channel,
     });
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/pins.list?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   // Additional Reactions API methods
   async removeReaction(args: ReactionsRemoveArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/reactions.remove", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        channel: args.channel,
-        timestamp: args.timestamp,
-        name: args.name,
-      }),
-    });
+    Logger.debug('Removing reaction', { channel: args.channel, timestamp: args.timestamp, name: args.name });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/reactions.remove",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          channel: args.channel,
+          timestamp: args.timestamp,
+          name: args.name,
+        }),
+      }
+    );
   }
 
   async getReactions(args: ReactionsGetArgs): Promise<any> {
+    Logger.debug('Getting reactions', { channel: args.channel, timestamp: args.timestamp, full: args.full });
+
     const params = new URLSearchParams({
       channel: args.channel,
       timestamp: args.timestamp,
     });
-    
+
     if (args.full) params.append("full", "true");
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/reactions.get?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   async listReactions(args: ReactionsListArgs): Promise<any> {
+    Logger.debug('Listing reactions', { count: args.count, page: args.page, full: args.full });
+
     const params = new URLSearchParams();
-    
+
     if (args.count) params.append("count", args.count.toString());
     if (args.page) params.append("page", args.page.toString());
     if (args.full) params.append("full", "true");
 
-    const response = await fetch(
+    return this.makeApiRequest(
       `https://slack.com/api/reactions.list?${params}`,
-      { headers: this.botHeaders }
+      { method: 'GET' }
     );
-
-    return response.json();
   }
 
   // Views API methods
   async openView(args: ViewsOpenArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/views.open", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        trigger_id: args.trigger_id,
-        view: args.view,
-      }),
-    });
+    Logger.debug('Opening view', { trigger_id: args.trigger_id, view_type: args.view.type });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/views.open",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          trigger_id: args.trigger_id,
+          view: args.view,
+        }),
+      }
+    );
   }
 
   async updateView(args: ViewsUpdateArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/views.update", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        view_id: args.view_id,
-        view: args.view,
-        hash: args.hash,
-      }),
-    });
+    Logger.debug('Updating view', { view_id: args.view_id, view_type: args.view.type, has_hash: !!args.hash });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/views.update",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          view_id: args.view_id,
+          view: args.view,
+          hash: args.hash,
+        }),
+      }
+    );
   }
 
   async pushView(args: ViewsPushArgs): Promise<any> {
-    const response = await fetch("https://slack.com/api/views.push", {
-      method: "POST",
-      headers: this.botHeaders,
-      body: JSON.stringify({
-        trigger_id: args.trigger_id,
-        view: args.view,
-      }),
-    });
+    Logger.debug('Pushing view', { trigger_id: args.trigger_id, view_type: args.view.type });
 
-    return response.json();
+    return this.makeApiRequest(
+      "https://slack.com/api/views.push",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          trigger_id: args.trigger_id,
+          view: args.view,
+        }),
+      }
+    );
   }
 }
 
 async function main() {
+  Logger.info("Starting Slack MCP Server v0.9.0");
+  Logger.info("Log level:", { level: LOG_LEVEL });
+
   const botToken = process.env.SLACK_BOT_TOKEN;
   const teamId = process.env.SLACK_TEAM_ID;
 
   if (!botToken || !teamId) {
-    console.error(
-      "Please set SLACK_BOT_TOKEN and SLACK_TEAM_ID environment variables",
+    Logger.error(
+      "Missing required environment variables: SLACK_BOT_TOKEN and SLACK_TEAM_ID"
     );
     process.exit(1);
   }
 
+  Logger.info("Environment configured", {
+    teamId,
+    hasBotToken: !!botToken,
+    hasUserToken: !!process.env.SLACK_USER_TOKEN
+  });
+
   const userToken = process.env.SLACK_USER_TOKEN;
   if (!userToken) {
-    console.error(
-      "Warning: SLACK_USER_TOKEN not set. File uploads, reminders, and some Canvas operations will not work.",
+    Logger.warn(
+      "SLACK_USER_TOKEN not set. File uploads, reminders, and some Canvas operations will not work."
     );
   }
 
-  console.error("Starting Slack MCP Server with Canvas support...");
+  Logger.info("Initializing MCP server...");
   const server = new Server(
     {
       name: "Slack MCP Server with Canvas",
@@ -2070,538 +2258,553 @@ async function main() {
   server.setRequestHandler(
     CallToolRequestSchema,
     async (request: CallToolRequest) => {
-      console.error("Received CallToolRequest:", request);
+      Logger.info(`Tool called: ${request.params.name}`, {
+        tool: request.params.name,
+        hasArguments: !!request.params.arguments,
+      });
+
+      Logger.debug("Tool request details", request.params);
+
       try {
         if (!request.params.arguments) {
           throw new Error("No arguments provided");
         }
 
         switch (request.params.name) {
-          case "slack_list_channels": {
-            const args = request.params
-              .arguments as unknown as ListChannelsArgs;
-            const response = await slackClient.getChannels(
-              args.limit,
-              args.cursor,
-            );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+        case "slack_list_channels": {
+          const args = request.params
+                .arguments as unknown as ListChannelsArgs;
+          const response = await slackClient.getChannels(
+            args.limit,
+            args.cursor,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_post_message": {
-            const args = request.params.arguments as unknown as PostMessageArgs;
-            if (!args.channel_id || !args.text) {
-              throw new Error(
-                "Missing required arguments: channel_id and text",
-              );
-            }
-            const response = await slackClient.postMessage(
-              args.channel_id,
-              args.text,
+        case "slack_post_message": {
+          const args = request.params.arguments as unknown as PostMessageArgs;
+          if (!args.channel_id || !args.text) {
+            throw new Error(
+              "Missing required arguments: channel_id and text",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
+          const response = await slackClient.postMessage(
+            args.channel_id,
+            args.text,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_reply_to_thread": {
-            const args = request.params
-              .arguments as unknown as ReplyToThreadArgs;
-            if (!args.channel_id || !args.thread_ts || !args.text) {
-              throw new Error(
-                "Missing required arguments: channel_id, thread_ts, and text",
-              );
-            }
-            const response = await slackClient.postReply(
-              args.channel_id,
-              args.thread_ts,
-              args.text,
+        case "slack_reply_to_thread": {
+          const args = request.params
+                .arguments as unknown as ReplyToThreadArgs;
+          if (!args.channel_id || !args.thread_ts || !args.text) {
+            throw new Error(
+              "Missing required arguments: channel_id, thread_ts, and text",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
+          const response = await slackClient.postReply(
+            args.channel_id,
+            args.thread_ts,
+            args.text,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_add_reaction": {
-            const args = request.params.arguments as unknown as AddReactionArgs;
-            if (!args.channel_id || !args.timestamp || !args.reaction) {
-              throw new Error(
-                "Missing required arguments: channel_id, timestamp, and reaction",
-              );
-            }
-            const response = await slackClient.addReaction(
-              args.channel_id,
-              args.timestamp,
-              args.reaction,
+        case "slack_add_reaction": {
+          const args = request.params.arguments as unknown as AddReactionArgs;
+          if (!args.channel_id || !args.timestamp || !args.reaction) {
+            throw new Error(
+              "Missing required arguments: channel_id, timestamp, and reaction",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
+          const response = await slackClient.addReaction(
+            args.channel_id,
+            args.timestamp,
+            args.reaction,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_get_channel_history": {
-            const args = request.params
-              .arguments as unknown as GetChannelHistoryArgs;
-            if (!args.channel_id) {
-              throw new Error("Missing required argument: channel_id");
-            }
-            const response = await slackClient.getChannelHistory(
-              args.channel_id,
-              args.limit,
+        case "slack_get_channel_history": {
+          const args = request.params
+                .arguments as unknown as GetChannelHistoryArgs;
+          if (!args.channel_id) {
+            throw new Error("Missing required argument: channel_id");
+          }
+          const response = await slackClient.getChannelHistory(
+            args.channel_id,
+            args.limit,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_get_thread_replies": {
+          const args = request.params
+                .arguments as unknown as GetThreadRepliesArgs;
+          if (!args.channel_id || !args.thread_ts) {
+            throw new Error(
+              "Missing required arguments: channel_id and thread_ts",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
+          const response = await slackClient.getThreadReplies(
+            args.channel_id,
+            args.thread_ts,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_get_thread_replies": {
-            const args = request.params
-              .arguments as unknown as GetThreadRepliesArgs;
-            if (!args.channel_id || !args.thread_ts) {
-              throw new Error(
-                "Missing required arguments: channel_id and thread_ts",
-              );
-            }
-            const response = await slackClient.getThreadReplies(
-              args.channel_id,
-              args.thread_ts,
-            );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+        case "slack_get_users": {
+          const args = request.params.arguments as unknown as GetUsersArgs;
+          const response = await slackClient.getUsers(
+            args.limit,
+            args.cursor,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_get_users": {
-            const args = request.params.arguments as unknown as GetUsersArgs;
-            const response = await slackClient.getUsers(
-              args.limit,
-              args.cursor,
-            );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_get_user_profile": {
+          const args = request.params
+                .arguments as unknown as GetUserProfileArgs;
+          if (!args.user_id) {
+            throw new Error("Missing required argument: user_id");
           }
-
-          case "slack_get_user_profile": {
-            const args = request.params
-              .arguments as unknown as GetUserProfileArgs;
-            if (!args.user_id) {
-              throw new Error("Missing required argument: user_id");
-            }
-            const response = await slackClient.getUserProfile(args.user_id);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+          const response = await slackClient.getUserProfile(args.user_id);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Canvas API handlers
-          case "slack_canvas_create": {
-            const args = request.params.arguments as unknown as CanvasCreateArgs;
-            const response = await slackClient.createCanvas(
-              args.title,
-              args.document_content,
-              args.channel_id,
+        case "slack_canvas_create": {
+          const args = request.params.arguments as unknown as CanvasCreateArgs;
+          const response = await slackClient.createCanvas(
+            args.title,
+            args.document_content,
+            args.channel_id,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_canvas_edit": {
+          const args = request.params.arguments as unknown as CanvasEditArgs;
+          if (!args.canvas_id || !args.changes) {
+            throw new Error(
+              "Missing required arguments: canvas_id and changes",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
+          const response = await slackClient.editCanvas(
+            args.canvas_id,
+            args.changes,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_canvas_edit": {
-            const args = request.params.arguments as unknown as CanvasEditArgs;
-            if (!args.canvas_id || !args.changes) {
-              throw new Error(
-                "Missing required arguments: canvas_id and changes",
-              );
-            }
-            const response = await slackClient.editCanvas(
-              args.canvas_id,
-              args.changes,
+        case "slack_channel_canvas_create": {
+          const args = request.params.arguments as unknown as ChannelCanvasCreateArgs;
+          if (!args.channel_id) {
+            throw new Error("Missing required argument: channel_id");
+          }
+          const response = await slackClient.createChannelCanvas(
+            args.channel_id,
+            args.document_content,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_canvas_get": {
+          const args = request.params.arguments as unknown as CanvasGetArgs;
+          if (!args.canvas_id) {
+            throw new Error("Missing required argument: canvas_id");
+          }
+          const response = await slackClient.getCanvas(args.canvas_id);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_canvas_delete": {
+          const args = request.params.arguments as unknown as CanvasDeleteArgs;
+          if (!args.canvas_id) {
+            throw new Error("Missing required argument: canvas_id");
+          }
+          const response = await slackClient.deleteCanvas(args.canvas_id);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_canvas_access_set": {
+          const args = request.params.arguments as unknown as CanvasAccessSetArgs;
+          if (!args.canvas_id || !args.access_level) {
+            throw new Error(
+              "Missing required arguments: canvas_id and access_level",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
-
-          case "slack_channel_canvas_create": {
-            const args = request.params.arguments as unknown as ChannelCanvasCreateArgs;
-            if (!args.channel_id) {
-              throw new Error("Missing required argument: channel_id");
-            }
-            const response = await slackClient.createChannelCanvas(
-              args.channel_id,
-              args.document_content,
+          if (args.channel_ids && args.user_ids) {
+            throw new Error(
+              "Cannot specify both channel_ids and user_ids",
             );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
           }
-
-          case "slack_canvas_get": {
-            const args = request.params.arguments as unknown as CanvasGetArgs;
-            if (!args.canvas_id) {
-              throw new Error("Missing required argument: canvas_id");
-            }
-            const response = await slackClient.getCanvas(args.canvas_id);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
-
-          case "slack_canvas_delete": {
-            const args = request.params.arguments as unknown as CanvasDeleteArgs;
-            if (!args.canvas_id) {
-              throw new Error("Missing required argument: canvas_id");
-            }
-            const response = await slackClient.deleteCanvas(args.canvas_id);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
-
-          case "slack_canvas_access_set": {
-            const args = request.params.arguments as unknown as CanvasAccessSetArgs;
-            if (!args.canvas_id || !args.access_level) {
-              throw new Error(
-                "Missing required arguments: canvas_id and access_level",
-              );
-            }
-            if (args.channel_ids && args.user_ids) {
-              throw new Error(
-                "Cannot specify both channel_ids and user_ids",
-              );
-            }
-            const response = await slackClient.setCanvasAccess(
-              args.canvas_id,
-              args.access_level,
-              args.channel_ids,
-              args.user_ids,
-            );
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+          const response = await slackClient.setCanvasAccess(
+            args.canvas_id,
+            args.access_level,
+            args.channel_ids,
+            args.user_ids,
+          );
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Files API handlers
-          case "slack_files_upload": {
-            const args = request.params.arguments as unknown as FilesUploadArgs;
-            if (!args.content || !args.filename) {
-              throw new Error(
-                "Missing required arguments: content and filename",
-              );
-            }
-            const response = await slackClient.uploadFile(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_files_upload": {
+          const args = request.params.arguments as unknown as FilesUploadArgs;
+          if (!args.content || !args.filename) {
+            throw new Error(
+              "Missing required arguments: content and filename",
+            );
           }
+          const response = await slackClient.uploadFile(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_files_list": {
-            const args = request.params.arguments as unknown as FilesListArgs;
-            const response = await slackClient.listFiles(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+        case "slack_files_list": {
+          const args = request.params.arguments as unknown as FilesListArgs;
+          const response = await slackClient.listFiles(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_files_info": {
-            const args = request.params.arguments as unknown as FilesInfoArgs;
-            if (!args.file) {
-              throw new Error("Missing required argument: file");
-            }
-            const response = await slackClient.getFileInfo(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_files_info": {
+          const args = request.params.arguments as unknown as FilesInfoArgs;
+          if (!args.file) {
+            throw new Error("Missing required argument: file");
           }
+          const response = await slackClient.getFileInfo(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_files_delete": {
-            const args = request.params.arguments as unknown as FilesDeleteArgs;
-            if (!args.file) {
-              throw new Error("Missing required argument: file");
-            }
-            const response = await slackClient.deleteFile(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_files_delete": {
+          const args = request.params.arguments as unknown as FilesDeleteArgs;
+          if (!args.file) {
+            throw new Error("Missing required argument: file");
           }
+          const response = await slackClient.deleteFile(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Search API handlers
-          case "slack_search_messages": {
-            const args = request.params.arguments as unknown as SearchMessagesArgs;
-            if (!args.query) {
-              throw new Error("Missing required argument: query");
-            }
-            const response = await slackClient.searchMessages(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_search_messages": {
+          const args = request.params.arguments as unknown as SearchMessagesArgs;
+          if (!args.query) {
+            throw new Error("Missing required argument: query");
           }
+          const response = await slackClient.searchMessages(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_search_files": {
-            const args = request.params.arguments as unknown as SearchFilesArgs;
-            if (!args.query) {
-              throw new Error("Missing required argument: query");
-            }
-            const response = await slackClient.searchFiles(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_search_files": {
+          const args = request.params.arguments as unknown as SearchFilesArgs;
+          if (!args.query) {
+            throw new Error("Missing required argument: query");
           }
+          const response = await slackClient.searchFiles(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Reminder API handlers
-          case "slack_reminders_add": {
-            const args = request.params.arguments as unknown as RemindersAddArgs;
-            if (!args.text || !args.time) {
-              throw new Error("Missing required arguments: text and time");
-            }
-            const response = await slackClient.addReminder(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_reminders_add": {
+          const args = request.params.arguments as unknown as RemindersAddArgs;
+          if (!args.text || !args.time) {
+            throw new Error("Missing required arguments: text and time");
           }
+          const response = await slackClient.addReminder(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_reminders_list": {
-            const args = request.params.arguments as unknown as RemindersListArgs;
-            const response = await slackClient.listReminders(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+        case "slack_reminders_list": {
+          const args = request.params.arguments as unknown as RemindersListArgs;
+          const response = await slackClient.listReminders(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_reminders_delete": {
-            const args = request.params.arguments as unknown as RemindersDeleteArgs;
-            if (!args.reminder) {
-              throw new Error("Missing required argument: reminder");
-            }
-            const response = await slackClient.deleteReminder(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_reminders_delete": {
+          const args = request.params.arguments as unknown as RemindersDeleteArgs;
+          if (!args.reminder) {
+            throw new Error("Missing required argument: reminder");
           }
+          const response = await slackClient.deleteReminder(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Channel/Conversation Management handlers
-          case "slack_conversation_create": {
-            const args = request.params.arguments as unknown as ConversationCreateArgs;
-            if (!args.name) {
-              throw new Error("Missing required argument: name");
-            }
-            const response = await slackClient.createConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_create": {
+          const args = request.params.arguments as unknown as ConversationCreateArgs;
+          if (!args.name) {
+            throw new Error("Missing required argument: name");
           }
+          const response = await slackClient.createConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_archive": {
-            const args = request.params.arguments as unknown as ConversationArchiveArgs;
-            if (!args.channel) {
-              throw new Error("Missing required argument: channel");
-            }
-            const response = await slackClient.archiveConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_archive": {
+          const args = request.params.arguments as unknown as ConversationArchiveArgs;
+          if (!args.channel) {
+            throw new Error("Missing required argument: channel");
           }
+          const response = await slackClient.archiveConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_unarchive": {
-            const args = request.params.arguments as unknown as ConversationUnarchiveArgs;
-            if (!args.channel) {
-              throw new Error("Missing required argument: channel");
-            }
-            const response = await slackClient.unarchiveConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_unarchive": {
+          const args = request.params.arguments as unknown as ConversationUnarchiveArgs;
+          if (!args.channel) {
+            throw new Error("Missing required argument: channel");
           }
+          const response = await slackClient.unarchiveConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_invite": {
-            const args = request.params.arguments as unknown as ConversationInviteArgs;
-            if (!args.channel || !args.users) {
-              throw new Error("Missing required arguments: channel and users");
-            }
-            const response = await slackClient.inviteToConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_invite": {
+          const args = request.params.arguments as unknown as ConversationInviteArgs;
+          if (!args.channel || !args.users) {
+            throw new Error("Missing required arguments: channel and users");
           }
+          const response = await slackClient.inviteToConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_kick": {
-            const args = request.params.arguments as unknown as ConversationKickArgs;
-            if (!args.channel || !args.user) {
-              throw new Error("Missing required arguments: channel and user");
-            }
-            const response = await slackClient.kickFromConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_kick": {
+          const args = request.params.arguments as unknown as ConversationKickArgs;
+          if (!args.channel || !args.user) {
+            throw new Error("Missing required arguments: channel and user");
           }
+          const response = await slackClient.kickFromConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_rename": {
-            const args = request.params.arguments as unknown as ConversationRenameArgs;
-            if (!args.channel || !args.name) {
-              throw new Error("Missing required arguments: channel and name");
-            }
-            const response = await slackClient.renameConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_rename": {
+          const args = request.params.arguments as unknown as ConversationRenameArgs;
+          if (!args.channel || !args.name) {
+            throw new Error("Missing required arguments: channel and name");
           }
+          const response = await slackClient.renameConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_set_purpose": {
-            const args = request.params.arguments as unknown as ConversationSetPurposeArgs;
-            if (!args.channel || !args.purpose) {
-              throw new Error("Missing required arguments: channel and purpose");
-            }
-            const response = await slackClient.setConversationPurpose(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_set_purpose": {
+          const args = request.params.arguments as unknown as ConversationSetPurposeArgs;
+          if (!args.channel || !args.purpose) {
+            throw new Error("Missing required arguments: channel and purpose");
           }
+          const response = await slackClient.setConversationPurpose(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_set_topic": {
-            const args = request.params.arguments as unknown as ConversationSetTopicArgs;
-            if (!args.channel || !args.topic) {
-              throw new Error("Missing required arguments: channel and topic");
-            }
-            const response = await slackClient.setConversationTopic(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_set_topic": {
+          const args = request.params.arguments as unknown as ConversationSetTopicArgs;
+          if (!args.channel || !args.topic) {
+            throw new Error("Missing required arguments: channel and topic");
           }
+          const response = await slackClient.setConversationTopic(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_join": {
-            const args = request.params.arguments as unknown as ConversationJoinArgs;
-            if (!args.channel) {
-              throw new Error("Missing required argument: channel");
-            }
-            const response = await slackClient.joinConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_join": {
+          const args = request.params.arguments as unknown as ConversationJoinArgs;
+          if (!args.channel) {
+            throw new Error("Missing required argument: channel");
           }
+          const response = await slackClient.joinConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_conversation_leave": {
-            const args = request.params.arguments as unknown as ConversationLeaveArgs;
-            if (!args.channel) {
-              throw new Error("Missing required argument: channel");
-            }
-            const response = await slackClient.leaveConversation(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_conversation_leave": {
+          const args = request.params.arguments as unknown as ConversationLeaveArgs;
+          if (!args.channel) {
+            throw new Error("Missing required argument: channel");
           }
+          const response = await slackClient.leaveConversation(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Pins API handlers
-          case "slack_pins_add": {
-            const args = request.params.arguments as unknown as PinsAddArgs;
-            if (!args.channel || !args.timestamp) {
-              throw new Error("Missing required arguments: channel and timestamp");
-            }
-            const response = await slackClient.addPin(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_pins_add": {
+          const args = request.params.arguments as unknown as PinsAddArgs;
+          if (!args.channel || !args.timestamp) {
+            throw new Error("Missing required arguments: channel and timestamp");
           }
+          const response = await slackClient.addPin(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_pins_remove": {
-            const args = request.params.arguments as unknown as PinsRemoveArgs;
-            if (!args.channel || !args.timestamp) {
-              throw new Error("Missing required arguments: channel and timestamp");
-            }
-            const response = await slackClient.removePin(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_pins_remove": {
+          const args = request.params.arguments as unknown as PinsRemoveArgs;
+          if (!args.channel || !args.timestamp) {
+            throw new Error("Missing required arguments: channel and timestamp");
           }
+          const response = await slackClient.removePin(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_pins_list": {
-            const args = request.params.arguments as unknown as PinsListArgs;
-            if (!args.channel) {
-              throw new Error("Missing required argument: channel");
-            }
-            const response = await slackClient.listPins(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_pins_list": {
+          const args = request.params.arguments as unknown as PinsListArgs;
+          if (!args.channel) {
+            throw new Error("Missing required argument: channel");
           }
+          const response = await slackClient.listPins(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Additional Reactions API handlers
-          case "slack_reactions_remove": {
-            const args = request.params.arguments as unknown as ReactionsRemoveArgs;
-            if (!args.channel || !args.timestamp || !args.name) {
-              throw new Error("Missing required arguments: channel, timestamp, and name");
-            }
-            const response = await slackClient.removeReaction(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_reactions_remove": {
+          const args = request.params.arguments as unknown as ReactionsRemoveArgs;
+          if (!args.channel || !args.timestamp || !args.name) {
+            throw new Error("Missing required arguments: channel, timestamp, and name");
           }
+          const response = await slackClient.removeReaction(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_reactions_get": {
-            const args = request.params.arguments as unknown as ReactionsGetArgs;
-            if (!args.channel || !args.timestamp) {
-              throw new Error("Missing required arguments: channel and timestamp");
-            }
-            const response = await slackClient.getReactions(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_reactions_get": {
+          const args = request.params.arguments as unknown as ReactionsGetArgs;
+          if (!args.channel || !args.timestamp) {
+            throw new Error("Missing required arguments: channel and timestamp");
           }
+          const response = await slackClient.getReactions(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
-          case "slack_reactions_list": {
-            const args = request.params.arguments as unknown as ReactionsListArgs;
-            const response = await slackClient.listReactions(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
+        case "slack_reactions_list": {
+          const args = request.params.arguments as unknown as ReactionsListArgs;
+          const response = await slackClient.listReactions(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
 
           // Views API handlers
-          case "slack_views_open": {
-            const args = request.params.arguments as unknown as ViewsOpenArgs;
-            if (!args.trigger_id || !args.view) {
-              throw new Error("Missing required arguments: trigger_id and view");
-            }
-            const response = await slackClient.openView(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
+        case "slack_views_open": {
+          const args = request.params.arguments as unknown as ViewsOpenArgs;
+          if (!args.trigger_id || !args.view) {
+            throw new Error("Missing required arguments: trigger_id and view");
           }
-
-          case "slack_views_update": {
-            const args = request.params.arguments as unknown as ViewsUpdateArgs;
-            if (!args.view_id || !args.view) {
-              throw new Error("Missing required arguments: view_id and view");
-            }
-            const response = await slackClient.updateView(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
-
-          case "slack_views_push": {
-            const args = request.params.arguments as unknown as ViewsPushArgs;
-            if (!args.trigger_id || !args.view) {
-              throw new Error("Missing required arguments: trigger_id and view");
-            }
-            const response = await slackClient.pushView(args);
-            return {
-              content: [{ type: "text", text: JSON.stringify(response) }],
-            };
-          }
-
-          default:
-            throw new Error(`Unknown tool: ${request.params.name}`);
+          const response = await slackClient.openView(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
         }
+
+        case "slack_views_update": {
+          const args = request.params.arguments as unknown as ViewsUpdateArgs;
+          if (!args.view_id || !args.view) {
+            throw new Error("Missing required arguments: view_id and view");
+          }
+          const response = await slackClient.updateView(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_views_push": {
+          const args = request.params.arguments as unknown as ViewsPushArgs;
+          if (!args.trigger_id || !args.view) {
+            throw new Error("Missing required arguments: trigger_id and view");
+          }
+          const response = await slackClient.pushView(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        default:
+          throw new Error(`Unknown tool: ${request.params.name}`);
+        }
+
+        Logger.success(`Tool ${request.params.name} completed successfully`);
       } catch (error) {
-        console.error("Error executing tool:", error);
+        Logger.error(`Error executing tool ${request.params.name}:`, {
+          error: error instanceof Error ? error.message : String(error),
+          stack: error instanceof Error ? error.stack : undefined,
+          tool: request.params.name,
+        });
+
         return {
           content: [
             {
               type: "text",
               text: JSON.stringify({
                 error: error instanceof Error ? error.message : String(error),
+                tool: request.params.name,
+                hint: "Enable debug mode with SLACK_MCP_LOG_LEVEL=debug for more details",
               }),
             },
           ],
@@ -2611,7 +2814,7 @@ async function main() {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => {
-    console.error("Received ListToolsRequest");
+    Logger.debug("Listing available tools");
     return {
       tools: [
         // Existing tools
@@ -2670,13 +2873,17 @@ async function main() {
   });
 
   const transport = new StdioServerTransport();
-  console.error("Connecting server to transport...");
+  Logger.info("Connecting to stdio transport...");
   await server.connect(transport);
 
-  console.error("Slack MCP Server with Canvas support running on stdio");
+  Logger.success("Slack MCP Server running successfully!");
+  Logger.info("Ready to handle requests", {
+    tools: 42,
+    logLevel: LOG_LEVEL,
+  });
 }
 
 main().catch((error) => {
-  console.error("Fatal error in main():", error);
+  Logger.error("Fatal error in main():", error);
   process.exit(1);
 });

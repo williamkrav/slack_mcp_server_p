@@ -129,7 +129,8 @@ npm run build
       "env": {
         "SLACK_BOT_TOKEN": "xoxb-your-actual-token-here",
         "SLACK_USER_TOKEN": "xoxp-your-user-token-here",
-        "SLACK_TEAM_ID": "T1234567890"
+        "SLACK_TEAM_ID": "T1234567890",
+        "SLACK_MCP_LOG_LEVEL": "info"
       }
     }
   }
@@ -500,8 +501,9 @@ npm run prepare    # Build for distribution
 - **Extended Reactions**: Remove reactions and get detailed reaction data
 - **Views/Modals API**: Create interactive modal dialogs
 - **Enhanced permissions**: Comprehensive access control
+- **Comprehensive logging**: Debug mode with detailed API tracking
 - **Comprehensive testing**: 80%+ test coverage with 87 tests
-- **Better error handling**: Graceful failure recovery
+- **Better error handling**: Graceful failure recovery with detailed error logs
 
 ### ⚠️ Breaking Changes
 - **Environment variable removed**: `SLACK_CHANNEL_IDS` is no longer used
@@ -541,12 +543,65 @@ npm run prepare    # Build for distribution
    - Reinstall app to workspace after adding scopes
    - Verify `SLACK_BOT_TOKEN` starts with `xoxb-`
 
-### Debug Mode
+## 🔍 Logging and Debugging
 
-Set environment variable for detailed logging:
-```bash
-DEBUG=slack-mcp:* node dist/index.js
+The server includes comprehensive logging to help debug issues with API calls.
+
+### Environment Variables
+
+- **`SLACK_MCP_LOG_LEVEL`**: Control logging verbosity
+  - `debug` - All logs including debug information
+  - `info` (default) - Information, warnings, and errors
+  - `warn` - Only warnings and errors
+  - `error` - Only errors
+
+### Example Debug Configuration
+
+```json
+{
+  "mcpServers": {
+    "slack": {
+      "command": "node",
+      "args": ["slack_mcp_server/dist/index.js"],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-...",
+        "SLACK_USER_TOKEN": "xoxp-...",
+        "SLACK_TEAM_ID": "T...",
+        "SLACK_MCP_LOG_LEVEL": "debug"
+      }
+    }
+  }
+}
 ```
+
+### Log Output Features
+
+- **Color-coded output** for easy reading
+- **Timestamps** for all log entries
+- **API request/response details** in debug mode
+- **Error stack traces** for troubleshooting
+- **Slack API error details** including missing scopes
+
+### Common Debug Scenarios
+
+1. **API Permission Errors**
+   ```
+   [ERROR] Slack API error: missing_scope
+   needed: channels:manage
+   provided: channels:read,chat:write
+   ```
+
+2. **Network Issues**
+   ```
+   [ERROR] Network error for POST https://slack.com/api/chat.postMessage
+   ```
+
+3. **Tool Execution**
+   ```
+   [INFO] Tool called: slack_post_message
+   [DEBUG] API Request: POST https://slack.com/api/chat.postMessage
+   [SUCCESS] Tool slack_post_message completed successfully
+   ```
 
 ## 📄 License
 
