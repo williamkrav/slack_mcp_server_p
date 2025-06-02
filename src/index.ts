@@ -214,6 +214,23 @@ interface FilesDeleteArgs {
   file: string;         // File ID to delete
 }
 
+// New Files API v2 type definitions
+interface FilesGetUploadURLExternalArgs {
+  filename: string;     // Name of the file
+  length: number;       // Size of the file in bytes
+  alt_txt?: string;     // Alternative text for the file
+}
+
+interface FilesCompleteUploadExternalArgs {
+  files: Array<{        // Array of file objects
+    id: string;         // File ID from getUploadURLExternal
+    title?: string;     // Title of the file
+  }>;
+  channel_id?: string;  // Channel to share the file to
+  initial_comment?: string; // Initial comment about the file
+  thread_ts?: string;   // Thread timestamp to share into
+}
+
 // Search API type definitions
 interface SearchMessagesArgs {
   query: string;        // Search query with operators
@@ -717,6 +734,113 @@ const canvasAccessSetTool: Tool = {
 const filesUploadTool: Tool = {
   name: "slack_files_upload",
   description: "Upload a file to Slack",
+  inputSchema: {
+    type: "object",
+    properties: {
+      content: {
+        type: "string",
+        description: "File content (for text files)",
+      },
+      filename: {
+        type: "string",
+        description: "Name of the file",
+      },
+      filetype: {
+        type: "string",
+        description: "Type of file (e.g., 'text', 'javascript', 'python')",
+      },
+      title: {
+        type: "string",
+        description: "Title of the file",
+      },
+      initial_comment: {
+        type: "string",
+        description: "Initial comment to add about the file",
+      },
+      channels: {
+        type: "array",
+        items: {
+          type: "string",
+        },
+        description: "Channel IDs where the file will be shared",
+      },
+      thread_ts: {
+        type: "string",
+        description: "Thread timestamp to upload file to",
+      },
+    },
+    required: ["content", "filename"],
+  },
+};
+
+// New Files API v2 tool definitions
+const filesGetUploadURLExternalTool: Tool = {
+  name: "slack_files_getUploadURLExternal",
+  description: "Get an upload URL for uploading a file to Slack (step 1 of v2 upload flow)",
+  inputSchema: {
+    type: "object",
+    properties: {
+      filename: {
+        type: "string",
+        description: "Name of the file to upload",
+      },
+      length: {
+        type: "number",
+        description: "Size of the file in bytes",
+      },
+      alt_txt: {
+        type: "string",
+        description: "Alternative text for the file",
+      },
+    },
+    required: ["filename", "length"],
+  },
+};
+
+const filesCompleteUploadExternalTool: Tool = {
+  name: "slack_files_completeUploadExternal",
+  description: "Complete the file upload process (step 2 of v2 upload flow)",
+  inputSchema: {
+    type: "object",
+    properties: {
+      files: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: {
+              type: "string",
+              description: "File ID from getUploadURLExternal",
+            },
+            title: {
+              type: "string",
+              description: "Title of the file",
+            },
+          },
+          required: ["id"],
+        },
+        description: "Array of file objects to complete upload for",
+      },
+      channel_id: {
+        type: "string",
+        description: "Channel ID to share the file to",
+      },
+      initial_comment: {
+        type: "string",
+        description: "Initial comment about the file",
+      },
+      thread_ts: {
+        type: "string",
+        description: "Thread timestamp to share into",
+      },
+    },
+    required: ["files"],
+  },
+};
+
+const filesUploadV2Tool: Tool = {
+  name: "slack_files_upload_v2",
+  description: "Upload a file to Slack using the new v2 API (recommended)",
   inputSchema: {
     type: "object",
     properties: {
@@ -1842,6 +1966,95 @@ class SlackClient {
     );
   }
 
+  // New Files API v2 methods
+  async getUploadURLExternal(args: FilesGetUploadURLExternalArgs): Promise<any> {
+    Logger.debug('Getting upload URL', { filename: args.filename, length: args.length });
+
+    return this.makeApiRequest(
+      "https://slack.com/api/files.getUploadURLExternal",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          filename: args.filename,
+          length: args.length,
+          alt_text: args.alt_txt,
+        }),
+      },
+      true  // useUserToken
+    );
+  }
+
+  async completeUploadExternal(args: FilesCompleteUploadExternalArgs): Promise<any> {
+    Logger.debug('Completing upload', { files: args.files, channel_id: args.channel_id });
+
+    return this.makeApiRequest(
+      "https://slack.com/api/files.completeUploadExternal",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          files: args.files,
+          channel_id: args.channel_id,
+          initial_comment: args.initial_comment,
+          thread_ts: args.thread_ts,
+        }),
+      },
+      true  // useUserToken
+    );
+  }
+
+  // Wrapper for v2 upload flow
+  async uploadFile_v2(args: FilesUploadArgs): Promise<any> {
+    Logger.debug('Starting v2 file upload', { filename: args.filename });
+
+    if (!args.content || !args.filename) {
+      throw new Error('Content and filename are required for file upload');
+    }
+
+    // Step 1: Get upload URL
+    const uploadUrlResponse = await this.getUploadURLExternal({
+      filename: args.filename,
+      length: Buffer.byteLength(args.content, 'utf8'),
+    });
+
+    if (!uploadUrlResponse.ok) {
+      Logger.error('Failed to get upload URL', uploadUrlResponse);
+      return uploadUrlResponse;
+    }
+
+    const { upload_url, file_id } = uploadUrlResponse;
+
+    // Step 2: Upload file to the URL
+    try {
+      const uploadResponse = await fetch(upload_url, {
+        method: 'POST',
+        body: args.content,
+        headers: {
+          'Content-Type': args.filetype || 'text/plain',
+        },
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+      }
+
+      // Step 3: Complete the upload
+      const completeResponse = await this.completeUploadExternal({
+        files: [{
+          id: file_id,
+          title: args.title || args.filename,
+        }],
+        channel_id: args.channels?.[0],
+        initial_comment: args.initial_comment,
+        thread_ts: args.thread_ts,
+      });
+
+      return completeResponse;
+    } catch (error) {
+      Logger.error('Error during file upload', error);
+      throw error;
+    }
+  }
+
   // Search API methods
   async searchMessages(args: SearchMessagesArgs): Promise<any> {
     Logger.debug('Searching messages', { query: args.query, sort: args.sort });
@@ -2585,6 +2798,46 @@ async function main() {
           };
         }
 
+        // New Files API v2 handlers
+        case "slack_files_getUploadURLExternal": {
+          const args = request.params.arguments as unknown as FilesGetUploadURLExternalArgs;
+          if (!args.filename || args.length === undefined || args.length === null) {
+            throw new Error(
+              "Missing required arguments: filename and length",
+            );
+          }
+          const response = await slackClient.getUploadURLExternal(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_files_completeUploadExternal": {
+          const args = request.params.arguments as unknown as FilesCompleteUploadExternalArgs;
+          if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
+            throw new Error(
+              "Missing required argument: files (must be a non-empty array)",
+            );
+          }
+          const response = await slackClient.completeUploadExternal(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
+        case "slack_files_upload_v2": {
+          const args = request.params.arguments as unknown as FilesUploadArgs;
+          if (!args.content || !args.filename) {
+            throw new Error(
+              "Missing required arguments: content and filename",
+            );
+          }
+          const response = await slackClient.uploadFile_v2(args);
+          return {
+            content: [{ type: "text", text: JSON.stringify(response) }],
+          };
+        }
+
           // Search API handlers
         case "slack_search_messages": {
           const args = request.params.arguments as unknown as SearchMessagesArgs;
@@ -2936,6 +3189,10 @@ async function main() {
         filesListTool,
         filesInfoTool,
         filesDeleteTool,
+        // New Files API v2 tools
+        filesGetUploadURLExternalTool,
+        filesCompleteUploadExternalTool,
+        filesUploadV2Tool,
         // Search API tools
         searchMessagesTool,
         searchFilesTool,
@@ -2992,7 +3249,7 @@ async function main() {
 
   Logger.success("Slack MCP Server running successfully!");
   Logger.info("Ready to handle requests", {
-    tools: 42,
+    tools: 45,
     logLevel: LOG_LEVEL,
   });
 }
