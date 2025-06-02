@@ -2221,6 +2221,66 @@ async function main() {
   Logger.info("Starting Slack MCP Server v0.9.0");
   Logger.info("Log level:", { level: LOG_LEVEL });
 
+  // Set up global error handlers to keep server running
+  let errorCount = 0;
+  const MAX_ERROR_COUNT = 10;
+  const ERROR_RESET_INTERVAL = 60000; // Reset error count every minute
+
+  // Reset error count periodically
+  const errorResetInterval = setInterval(() => {
+    if (errorCount > 0) {
+      Logger.info(`Resetting error count from ${errorCount} to 0`);
+      errorCount = 0;
+    }
+  }, ERROR_RESET_INTERVAL);
+
+  process.on('uncaughtException', (error) => {
+    errorCount++;
+    Logger.error('Uncaught Exception (server continues):', error);
+    Logger.warn(`Server is continuing despite uncaught exception. Error count: ${errorCount}/${MAX_ERROR_COUNT}`);
+
+    // If too many errors, exit to prevent infinite error loop
+    if (errorCount >= MAX_ERROR_COUNT) {
+      Logger.error(`Too many errors (${errorCount}), shutting down to prevent system instability`);
+      process.exit(1);
+    }
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    errorCount++;
+    Logger.error('Unhandled Rejection (server continues):', {
+      reason: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+      promise: String(promise)
+    });
+    Logger.warn(`Server is continuing despite unhandled rejection. Error count: ${errorCount}/${MAX_ERROR_COUNT}`);
+
+    // If too many errors, exit to prevent infinite error loop
+    if (errorCount >= MAX_ERROR_COUNT) {
+      Logger.error(`Too many errors (${errorCount}), shutting down to prevent system instability`);
+      process.exit(1);
+    }
+  });
+
+  // Handle warnings
+  process.on('warning', (warning) => {
+    Logger.warn('Process Warning:', {
+      name: warning.name,
+      message: warning.message,
+      stack: warning.stack
+    });
+  });
+
+  // Graceful shutdown handlers
+  const shutdown = (signal: string) => {
+    Logger.info(`Received ${signal}, shutting down gracefully...`);
+    clearInterval(errorResetInterval);
+    process.exit(0);
+  };
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
   const botToken = process.env.SLACK_BOT_TOKEN;
   const teamId = process.env.SLACK_TEAM_ID;
 
