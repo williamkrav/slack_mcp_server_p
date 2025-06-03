@@ -15,6 +15,9 @@ import {
   ListResourcesRequestSchema,
   Tool,
 } from "@modelcontextprotocol/sdk/types.js";
+import * as fs from 'fs/promises';
+import * as path from 'path';
+import { lookup } from 'mime-types';
 
 // Logging configuration
 const LOG_LEVEL = process.env.SLACK_MCP_LOG_LEVEL || 'info';
@@ -186,7 +189,8 @@ interface CanvasAccessSetArgs {
 // Files API type definitions
 interface FilesUploadArgs {
   content?: string;           // File content (for text files)
-  filename?: string;          // Filename
+  file_path?: string;         // Path to local file to upload
+  filename?: string;          // Filename (required if content provided, optional if file_path provided)
   filetype?: string;          // File type (auto-detect if not provided)
   title?: string;             // Title of the file
   initial_comment?: string;   // Message to add about the file
@@ -840,21 +844,25 @@ const filesCompleteUploadExternalTool: Tool = {
 
 const filesUploadV2Tool: Tool = {
   name: "slack_files_upload_v2",
-  description: "Upload a file to Slack using the new v2 API (recommended)",
+  description: "Upload a file to Slack using the new v2 API (recommended). Supports both file paths and direct content.",
   inputSchema: {
     type: "object",
     properties: {
+      file_path: {
+        type: "string",
+        description: "Path to local file to upload. If provided, content and filename are optional.",
+      },
       content: {
         type: "string",
-        description: "File content (for text files)",
+        description: "File content (for text files). Required if file_path is not provided.",
       },
       filename: {
         type: "string",
-        description: "Name of the file",
+        description: "Name of the file. Required if content is provided, optional if file_path is provided.",
       },
       filetype: {
         type: "string",
-        description: "Type of file (e.g., 'text', 'javascript', 'python')",
+        description: "Type of file (e.g., 'text', 'javascript', 'python'). Auto-detected for file_path.",
       },
       title: {
         type: "string",
@@ -876,7 +884,6 @@ const filesUploadV2Tool: Tool = {
         description: "Thread timestamp to upload file to",
       },
     },
-    required: ["content", "filename"],
   },
 };
 
@@ -2004,16 +2011,52 @@ class SlackClient {
 
   // Wrapper for v2 upload flow
   async uploadFile_v2(args: FilesUploadArgs): Promise<any> {
-    Logger.debug('Starting v2 file upload', { filename: args.filename });
+    Logger.debug('Starting v2 file upload', { filename: args.filename, file_path: args.file_path });
 
-    if (!args.content || !args.filename) {
-      throw new Error('Content and filename are required for file upload');
+    let content: Buffer;
+    let filename: string;
+    let filetype: string | undefined;
+
+    // Handle file path input
+    if (args.file_path) {
+      try {
+        // Read file from filesystem
+        content = await fs.readFile(args.file_path);
+        
+        // Use provided filename or extract from path
+        filename = args.filename || path.basename(args.file_path);
+        
+        // Auto-detect MIME type if not provided
+        if (!args.filetype) {
+          const mimeType = lookup(args.file_path);
+          filetype = mimeType || 'application/octet-stream';
+        } else {
+          filetype = args.filetype;
+        }
+        
+        Logger.debug('Read file from filesystem', { 
+          path: args.file_path, 
+          size: content.length,
+          detectedType: filetype 
+        });
+      } catch (error) {
+        Logger.error('Failed to read file', { path: args.file_path, error });
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`Failed to read file at ${args.file_path}: ${errorMessage}`);
+      }
+    } else if (args.content && args.filename) {
+      // Handle content input (existing behavior)
+      content = Buffer.from(args.content, 'utf8');
+      filename = args.filename;
+      filetype = args.filetype || 'text/plain';
+    } else {
+      throw new Error('Either file_path or both content and filename are required for file upload');
     }
 
     // Step 1: Get upload URL
     const uploadUrlResponse = await this.getUploadURLExternal({
-      filename: args.filename,
-      length: Buffer.byteLength(args.content, 'utf8'),
+      filename: filename,
+      length: content.length,
     });
 
     if (!uploadUrlResponse.ok) {
@@ -2027,9 +2070,9 @@ class SlackClient {
     try {
       const uploadResponse = await fetch(upload_url, {
         method: 'POST',
-        body: args.content,
+        body: content,
         headers: {
-          'Content-Type': args.filetype || 'text/plain',
+          'Content-Type': filetype,
         },
       });
 
@@ -2041,7 +2084,7 @@ class SlackClient {
       const completeResponse = await this.completeUploadExternal({
         files: [{
           id: file_id,
-          title: args.title || args.filename,
+          title: args.title || filename,
         }],
         channel_id: args.channels?.[0],
         initial_comment: args.initial_comment,
@@ -2830,9 +2873,9 @@ async function main() {
 
           case "slack_files_upload_v2": {
             const args = request.params.arguments as unknown as FilesUploadArgs;
-            if (!args.content || !args.filename) {
+            if (!args.file_path && (!args.content || !args.filename)) {
               throw new Error(
-                "Missing required arguments: content and filename",
+                "Missing required arguments: either file_path OR both content and filename",
               );
             }
             const response = await slackClient.uploadFile_v2(args);
