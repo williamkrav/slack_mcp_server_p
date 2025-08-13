@@ -1837,7 +1837,9 @@ class SlackClient {
     });
     const body = JSON.stringify({
       canvas_id: canvas_id,
-      section_types: ["any_header"]
+      criteria: {
+        section_types: ["any_header"]
+      }
     });
 
     return this.makeApiRequest(
