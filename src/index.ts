@@ -143,6 +143,10 @@ interface GetUserProfileArgs {
   user_id: string;
 }
 
+interface UserLookupByEmailArgs {
+  email: string;
+}
+
 // Canvas API type definitions
 interface DocumentContent {
   type: "markdown";
@@ -555,6 +559,21 @@ const getUserProfileTool: Tool = {
       },
     },
     required: ["user_id"],
+  },
+};
+
+const userLookupByEmailTool: Tool = {
+  name: "slack_user_email",
+  description: "Look up a user by their email address",
+  inputSchema: {
+    type: "object",
+    properties: {
+      email: {
+        type: "string",
+        description: "The email address of the user to look up",
+      },
+    },
+    required: ["email"],
   },
 };
 
@@ -1773,6 +1792,20 @@ class SlackClient {
     );
   }
 
+  async getUserByEmail(email: string): Promise<any> {
+    Logger.debug('Looking up user by email', { email });
+
+    return this.makeApiRequest(
+      "https://slack.com/api/users.lookupByEmail",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          email: email,
+        }),
+      }
+    );
+  }
+
   // Canvas API methods
   async createCanvas(title?: string, document_content?: DocumentContent, channel_id?: string): Promise<any> {
     Logger.debug('Creating canvas', { title, has_content: !!document_content, channel_id });
@@ -2730,6 +2763,17 @@ async function main() {
             };
           }
 
+          case "slack_user_email": {
+            const args = request.params.arguments as unknown as UserLookupByEmailArgs;
+            if (!args.email) {
+              throw new Error("Missing required argument: email");
+            }
+            const response = await slackClient.getUserByEmail(args.email);
+            return {
+              content: [{ type: "text", text: JSON.stringify(response) }],
+            };
+          }
+
             // Canvas API handlers
           case "slack_canvas_create": {
             const args = request.params.arguments as unknown as CanvasCreateArgs;
@@ -3241,6 +3285,7 @@ async function main() {
           getThreadRepliesTool,
           getUsersTool,
           getUserProfileTool,
+          userLookupByEmailTool,
           // Canvas tools
           canvasCreateTool,
           canvasEditTool,
