@@ -1835,10 +1835,14 @@ class SlackClient {
     const params = new URLSearchParams({
       canvas_id: canvas_id,
     });
+    const body = JSON.stringify({
+      canvas_id: canvas_id,
+      section_types: ["any_header"]
+    });
 
     return this.makeApiRequest(
       `https://slack.com/api/canvases.sections.lookup?${params}`,
-      { method: 'GET' }
+      { method: 'POST', body: body }
     );
   }
 
