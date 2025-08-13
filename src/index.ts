@@ -1743,14 +1743,20 @@ class SlackClient {
       team_id: process.env.SLACK_TEAM_ID!,
     });
 
+    
+    Logger.debug('params1', params);
     if (cursor) {
       params.append("cursor", cursor);
     }
+    Logger.debug('params2', params);
 
-    return this.makeApiRequest(
+    const ret = this.makeApiRequest(
       `https://slack.com/api/users.list?${params}`,
       { method: 'GET' }
     );
+
+    Logger.debug('ret', ret);
+    return ret;
   }
 
   async getUserProfile(user_id: string): Promise<any> {
@@ -1794,8 +1800,14 @@ class SlackClient {
     );
   }
 
-  async editCanvas(canvas_id: string, changes: CanvasChange[]): Promise<any> {
+  async editCanvas(canvas_id: string, changes: any[]): Promise<any> {
     Logger.debug('Editing canvas', { canvas_id, changes_count: changes.length });
+    const changeObj:string = JSON.stringify({
+      canvas_id: canvas_id,
+      changes: changes,
+    })
+    Logger.debug('changeObj', changeObj);
+
 
     return this.makeApiRequest(
       "https://slack.com/api/canvases.edit",
@@ -1803,7 +1815,7 @@ class SlackClient {
         method: "POST",
         body: JSON.stringify({
           canvas_id: canvas_id,
-          changes: changes,
+          changes: changeObj,
         }),
       }
     );
