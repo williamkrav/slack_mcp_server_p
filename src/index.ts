@@ -1802,7 +1802,7 @@ class SlackClient {
       {
         method: "POST",
         body: JSON.stringify({
-          section_id: canvas_id,
+          canvas_id: canvas_id,
           changes: changes,
         }),
       }
