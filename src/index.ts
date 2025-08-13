@@ -1796,13 +1796,8 @@ class SlackClient {
     Logger.debug('Looking up user by email', { email });
 
     return this.makeApiRequest(
-      "https://slack.com/api/users.lookupByEmail",
-      {
-        method: "POST",
-        body: JSON.stringify({
-          email: email,
-        }),
-      }
+      "https://slack.com/api/users.lookupByEmail?email=" + email,
+      { method: 'GET' }
     );
   }
 
