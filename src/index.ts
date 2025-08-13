@@ -1578,13 +1578,13 @@ class SlackClient {
   constructor(botToken: string) {
     this.botHeaders = {
       Authorization: `Bearer ${botToken}`,
-      "Content-Type": "application/json",
+      "Content-Type": "application/json;charset=utf-8",
     };
 
     const userToken = process.env.SLACK_USER_TOKEN;
     this.userHeaders = {
       Authorization: `Bearer ${userToken}`,
-      "Content-Type": "application/json",
+      "Content-Type": "application/json;charset=utf-8",
     };
   }
 
