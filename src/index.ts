@@ -411,9 +411,10 @@ const listChannelsTool: Tool = {
     properties: {
       limit: {
         type: "number",
-        description:
-        "Maximum number of channels to return (default 100, max 200)",
+        description: "Maximum number of channels to return (default 100, max 200)",
         default: 100,
+        minimum: 1,
+        maximum: 200,
       },
       cursor: {
         type: "string",
@@ -436,6 +437,7 @@ const postMessageTool: Tool = {
       text: {
         type: "string",
         description: "The message text to post",
+        minLength: 1,
       },
     },
     required: ["channel_id", "text"],
@@ -459,6 +461,7 @@ const replyToThreadTool: Tool = {
       text: {
         type: "string",
         description: "The reply text",
+        minLength: 1,
       },
     },
     required: ["channel_id", "thread_ts", "text"],
@@ -502,6 +505,8 @@ const getChannelHistoryTool: Tool = {
         type: "number",
         description: "Number of messages to retrieve (default 10)",
         default: 10,
+        minimum: 1,
+        maximum: 1000,
       },
     },
     required: ["channel_id"],
@@ -542,6 +547,8 @@ const getUsersTool: Tool = {
         type: "number",
         description: "Maximum number of users to return (default 100, max 200)",
         default: 100,
+        minimum: 1,
+        maximum: 200,
       },
     },
   },
@@ -571,6 +578,8 @@ const userLookupByEmailTool: Tool = {
       email: {
         type: "string",
         description: "The email address of the user to look up",
+        format: "email",
+        minLength: 1,
       },
     },
     required: ["email"],
@@ -624,7 +633,6 @@ const canvasEditTool: Tool = {
       },
       changes: {
         type: "array",
-        description: "Array of changes to apply to the canvas",
         items: {
           type: "object",
           properties: {
@@ -639,7 +647,6 @@ const canvasEditTool: Tool = {
             },
             document_content: {
               type: "object",
-              description: "Content to insert or replace with",
               properties: {
                 type: {
                   type: "string",
@@ -654,6 +661,7 @@ const canvasEditTool: Tool = {
           },
           required: ["operation"],
         },
+        description: "Array of changes to apply to the canvas",
       },
     },
     required: ["canvas_id", "changes"],
@@ -737,14 +745,14 @@ const canvasAccessSetTool: Tool = {
       channel_ids: {
         type: "array",
         items: {
-          type: "string",
+          type: "string"
         },
         description: "List of channel IDs to grant access to (cannot be used with user_ids)",
       },
       user_ids: {
         type: "array",
         items: {
-          type: "string",
+          type: "string"
         },
         description: "List of user IDs to grant access to (cannot be used with channel_ids)",
       },
@@ -767,6 +775,7 @@ const filesUploadTool: Tool = {
       filename: {
         type: "string",
         description: "Name of the file",
+        minLength: 1,
       },
       filetype: {
         type: "string",
@@ -783,7 +792,7 @@ const filesUploadTool: Tool = {
       channels: {
         type: "array",
         items: {
-          type: "string",
+          type: "string"
         },
         description: "Channel IDs where the file will be shared",
       },
@@ -806,10 +815,12 @@ const filesGetUploadURLExternalTool: Tool = {
       filename: {
         type: "string",
         description: "Name of the file to upload",
+        minLength: 1,
       },
       length: {
         type: "number",
         description: "Size of the file in bytes",
+        minimum: 1,
       },
       alt_txt: {
         type: "string",
@@ -894,7 +905,7 @@ const filesUploadV2Tool: Tool = {
       channels: {
         type: "array",
         items: {
-          type: "string",
+          type: "string"
         },
         description: "Channel IDs where the file will be shared",
       },
@@ -936,11 +947,14 @@ const filesListTool: Tool = {
         type: "number",
         description: "Number of items to return per page (default: 100)",
         default: 100,
+        minimum: 1,
+        maximum: 1000,
       },
       page: {
         type: "number",
         description: "Page number of results to return",
         default: 1,
+        minimum: 1,
       },
     },
   },
@@ -959,10 +973,15 @@ const filesInfoTool: Tool = {
       page: {
         type: "number",
         description: "Page number of comments to return",
+        minimum: 1,
+        default: 1,
       },
       count: {
         type: "number",
         description: "Number of comments per page",
+        minimum: 1,
+        maximum: 1000,
+        default: 100,
       },
     },
     required: ["file"],
@@ -994,6 +1013,7 @@ const searchMessagesTool: Tool = {
       query: {
         type: "string",
         description: "Search query (supports operators like from:user, in:channel)",
+        minLength: 1,
       },
       sort: {
         type: "string",
@@ -1016,11 +1036,14 @@ const searchMessagesTool: Tool = {
         type: "number",
         description: "Number of items to return per page",
         default: 20,
+        minimum: 1,
+        maximum: 100,
       },
       page: {
         type: "number",
         description: "Page number of results to return",
         default: 1,
+        minimum: 1,
       },
     },
     required: ["query"],
@@ -1036,6 +1059,7 @@ const searchFilesTool: Tool = {
       query: {
         type: "string",
         description: "Search query for files",
+        minLength: 1,
       },
       sort: {
         type: "string",
@@ -1058,11 +1082,14 @@ const searchFilesTool: Tool = {
         type: "number",
         description: "Number of items to return per page",
         default: 20,
+        minimum: 1,
+        maximum: 100,
       },
       page: {
         type: "number",
         description: "Page number of results to return",
         default: 1,
+        minimum: 1,
       },
     },
     required: ["query"],
@@ -1079,9 +1106,19 @@ const remindersAddTool: Tool = {
       text: {
         type: "string",
         description: "The content of the reminder",
+        minLength: 1,
       },
       time: {
-        type: ["string", "number"],
+        oneOf: [
+          {
+            type: "string",
+            description: "Natural language time description (e.g., 'tomorrow at 3pm', 'in 2 hours')"
+          },
+          {
+            type: "number",
+            description: "Unix timestamp"
+          }
+        ],
         description: "When to send the reminder (Unix timestamp or natural language like 'tomorrow at 3pm')",
       },
       user: {
@@ -1132,6 +1169,9 @@ const conversationCreateTool: Tool = {
       name: {
         type: "string",
         description: "Name of the channel to create (max 21 characters, lowercase)",
+        minLength: 1,
+        maxLength: 21,
+        pattern: "^[a-z0-9_-]+$",
       },
       is_private: {
         type: "boolean",
@@ -1414,11 +1454,14 @@ const reactionsListTool: Tool = {
         type: "number",
         description: "Number of items per page",
         default: 100,
+        minimum: 1,
+        maximum: 1000,
       },
       page: {
         type: "number",
         description: "Page number",
         default: 1,
+        minimum: 1,
       },
       full: {
         type: "boolean",
@@ -1463,6 +1506,9 @@ const viewsOpenTool: Tool = {
           },
           blocks: {
             type: "array",
+            items: {
+              type: "object"
+            },
             description: "Block Kit blocks",
           },
           submit: {
@@ -1533,6 +1579,9 @@ const viewsUpdateTool: Tool = {
           },
           blocks: {
             type: "array",
+            items: {
+              type: "object"
+            },
             description: "Block Kit blocks",
           },
         },
@@ -1580,6 +1629,9 @@ const viewsPushTool: Tool = {
           },
           blocks: {
             type: "array",
+            items: {
+              type: "object"
+            },
             description: "Block Kit blocks",
           },
         },
@@ -1763,12 +1815,10 @@ class SlackClient {
     });
 
     
-    Logger.debug('params1', params);
     if (cursor) {
       params.append("cursor", cursor);
     }
-    Logger.debug('params2', params);
-
+    
     const ret = this.makeApiRequest(
       `https://slack.com/api/users.list?${params}`,
       { method: 'GET' }
@@ -2118,7 +2168,7 @@ class SlackClient {
         method: 'POST',
         body: content,
         headers: {
-          'Content-Type': filetype,
+          'Content-Type': filetype || 'application/octet-stream',
         },
       });
 
