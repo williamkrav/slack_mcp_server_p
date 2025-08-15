@@ -1891,10 +1891,7 @@ class SlackClient {
       "https://slack.com/api/canvases.edit",
       {
         method: "POST",
-        body: JSON.stringify({
-          canvas_id: canvas_id,
-          changes: changeObj,
-        }),
+        body: changeObj
       }
     );
   }
